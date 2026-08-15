@@ -1,0 +1,17 @@
+# Rust
+target/
+**/*.rs.bk
+
+# Node / npm launcher package
+node_modules/
+npm/matrix-workspace-tui/*.tgz
+
+# OS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+
+# Local config
+.env
