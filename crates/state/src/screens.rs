@@ -544,6 +544,70 @@ impl GitHubWorkspaceState {
     }
 }
 
+/// The exact confirmation sentence the mobile sends as `confirmationText`
+/// (mirrors confirmationSentence in
+/// apps/mobile/src/components/MutationConfirmation.tsx).
+pub fn confirmation_sentence(
+    operation: GithubMutationOperation,
+    repository: &str,
+    scope: GithubWriteScope,
+) -> String {
+    let label = match operation {
+        GithubMutationOperation::CreateIssue => "create issue",
+        GithubMutationOperation::UpdateIssue => "update issue",
+        GithubMutationOperation::CommentIssue => "comment on issue",
+        GithubMutationOperation::CreatePrComment => "comment on pull request",
+    };
+    let scope_name = match scope {
+        GithubWriteScope::IssuesWrite => "issues:write",
+        GithubWriteScope::PullRequestsWrite => "pull_requests:write",
+    };
+    format!("I confirm {label} on {repository} ({scope_name})")
+}
+
+/// Recursively sort object keys; must match the control-plane
+/// canonicalization (mutation-command.ts `canonicalize`).
+pub fn canonicalize(value: &serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Array(items) => {
+            serde_json::Value::Array(items.iter().map(canonicalize).collect())
+        }
+        serde_json::Value::Object(map) => {
+            let mut sorted = BTreeMap::new();
+            for (key, value) in map {
+                sorted.insert(key.clone(), canonicalize(value));
+            }
+            serde_json::Value::Object(sorted.into_iter().collect())
+        }
+        other => other.clone(),
+    }
+}
+
+fn operation_name(operation: GithubMutationOperation) -> &'static str {
+    match operation {
+        GithubMutationOperation::CreateIssue => "create_issue",
+        GithubMutationOperation::UpdateIssue => "update_issue",
+        GithubMutationOperation::CommentIssue => "comment_issue",
+        GithubMutationOperation::CreatePrComment => "create_pr_comment",
+    }
+}
+
+/// SHA-256 of the canonical `{"operation": ..., "arguments": ...}` JSON —
+/// byte-identical to the server's computeCommandHash.
+pub fn command_hash(
+    operation: GithubMutationOperation,
+    arguments: &serde_json::Value,
+) -> String {
+    let value = canonicalize(&serde_json::json!({
+        "operation": operation_name(operation),
+        "arguments": arguments,
+    }));
+    let canonical = serde_json::to_string(&value).expect("command is serializable");
+    let mut hasher = Sha256::new();
+    hasher.update(canonical.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -835,5 +899,53 @@ mod tests {
             archived: false,
         }]);
         assert!(state.begin_mutation("   ".to_string()).is_none(), "empty title rejected");
+    }
+
+    #[test]
+    fn confirmation_sentence_matches_mobile_format() {
+        assert_eq!(
+            confirmation_sentence(
+                GithubMutationOperation::CreateIssue,
+                "octo/repo",
+                GithubWriteScope::IssuesWrite,
+            ),
+            "I confirm create issue on octo/repo (issues:write)"
+        );
+        assert_eq!(
+            confirmation_sentence(
+                GithubMutationOperation::CreatePrComment,
+                "octo/repo",
+                GithubWriteScope::PullRequestsWrite,
+            ),
+            "I confirm comment on pull request on octo/repo (pull_requests:write)"
+        );
+    }
+
+    #[test]
+    fn canonicalize_sorts_keys_recursively() {
+        let value = serde_json::json!({
+            "operation": "create_issue",
+            "arguments": { "title": "x", "body": "y" },
+        });
+        let canonical = canonicalize(&value);
+        assert_eq!(
+            serde_json::to_string(&canonical).unwrap(),
+            r#"{"arguments":{"body":"y","title":"x"},"operation":"create_issue"}"#
+        );
+    }
+
+    #[test]
+    fn command_hash_matches_the_control_plane_vector() {
+        let hash = command_hash(
+            GithubMutationOperation::CreateIssue,
+            &serde_json::json!({ "title": "Test issue" }),
+        );
+        assert_eq!(hash, "22a9632d51b690e300e3ef7fb397048392bc84a388c4ef68beb0d42202815fd8");
+
+        let hash_with_body = command_hash(
+            GithubMutationOperation::CreateIssue,
+            &serde_json::json!({ "body": "Details", "title": "Test issue" }),
+        );
+        assert_eq!(hash_with_body, "8c8a0ab437a3a0c5760a8179ab81bcc9b84b31878cf2dede2888c63fa8b4d2b9");
     }
 }
