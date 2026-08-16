@@ -5,5 +5,7 @@ pub mod contract;
 pub mod error;
 pub mod http;
 
+pub use api::*;
+pub use contract::*;
 pub use error::{ApiErrorBody, ApiErrorDetail, ControlPlaneError};
 pub use http::ControlPlaneApi;
