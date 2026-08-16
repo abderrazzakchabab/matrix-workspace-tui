@@ -1,9 +1,9 @@
+use api_client::sse::RunEventBuffer;
 use api_client::{
     AuditRecordItem, GithubMutationOperation, GithubPullRequestSummary, GithubRepositorySummary,
-    GithubWriteGrantResult, GithubWriteScope, MatrixDelivery, RunEvent, RunMode, RunRequest,
-    RoomSummary, WorkspaceSelection,
+    GithubWriteGrantResult, GithubWriteScope, MatrixDelivery, RoomSummary, RunEvent, RunMode,
+    RunRequest, WorkspaceSelection,
 };
-use api_client::sse::RunEventBuffer;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
@@ -101,6 +101,12 @@ pub struct WorkspacesState {
     pub error: Option<String>,
     pub creating: bool,
     pub name_input: String,
+}
+
+impl Default for WorkspacesState {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl WorkspacesState {
@@ -264,7 +270,11 @@ impl RunComposerState {
     }
 
     pub fn toggle_specialist(&mut self, id: &str) {
-        if let Some(position) = self.selected_specialists.iter().position(|value| value == id) {
+        if let Some(position) = self
+            .selected_specialists
+            .iter()
+            .position(|value| value == id)
+        {
             self.selected_specialists.remove(position);
         } else {
             self.selected_specialists.push(id.to_string());
@@ -594,10 +604,7 @@ fn operation_name(operation: GithubMutationOperation) -> &'static str {
 
 /// SHA-256 of the canonical `{"operation": ..., "arguments": ...}` JSON —
 /// byte-identical to the server's computeCommandHash.
-pub fn command_hash(
-    operation: GithubMutationOperation,
-    arguments: &serde_json::Value,
-) -> String {
+pub fn command_hash(operation: GithubMutationOperation, arguments: &serde_json::Value) -> String {
     let value = canonicalize(&serde_json::json!({
         "operation": operation_name(operation),
         "arguments": arguments,
@@ -662,9 +669,15 @@ mod tests {
     #[test]
     fn login_state_defaults_empty_and_validates() {
         let mut state = LoginState::default();
-        assert_eq!(state.validation_error().as_deref(), Some("Homeserver URL is required"));
+        assert_eq!(
+            state.validation_error().as_deref(),
+            Some("Homeserver URL is required")
+        );
         state.set_homeserver_url("https://matrix.example.org".to_string());
-        assert_eq!(state.validation_error().as_deref(), Some("Access token is required"));
+        assert_eq!(
+            state.validation_error().as_deref(),
+            Some("Access token is required")
+        );
         state.set_access_token("tok".to_string());
         assert!(state.validation_error().is_none());
     }
@@ -733,17 +746,29 @@ mod tests {
     fn rooms_state_tracks_selection_and_binding() {
         let mut state = RoomsState::new("ws_1".to_string());
         assert!(state.selected_room().is_none());
-        state.set_rooms(vec![room("!a:example.org", Some("ws_1")), room("!b:example.org", None)]);
-        assert!(state.room_is_bound_to_workspace(), "first room is bound to ws_1");
+        state.set_rooms(vec![
+            room("!a:example.org", Some("ws_1")),
+            room("!b:example.org", None),
+        ]);
+        assert!(
+            state.room_is_bound_to_workspace(),
+            "first room is bound to ws_1"
+        );
         state.select_next();
-        assert!(!state.room_is_bound_to_workspace(), "second room is unbound");
+        assert!(
+            !state.room_is_bound_to_workspace(),
+            "second room is unbound"
+        );
         assert_eq!(state.selected_room().unwrap().room_id, "!b:example.org");
     }
 
     #[test]
     fn rooms_state_clamps_selection_when_list_shrinks() {
         let mut state = RoomsState::new("ws_1".to_string());
-        state.set_rooms(vec![room("!a:example.org", None), room("!b:example.org", None)]);
+        state.set_rooms(vec![
+            room("!a:example.org", None),
+            room("!b:example.org", None),
+        ]);
         state.select_next();
         state.set_rooms(vec![room("!a:example.org", None)]);
         assert_eq!(state.selected(), 0);
@@ -772,11 +797,20 @@ mod tests {
     #[test]
     fn composer_requires_prompt_mode_and_specialists() {
         let mut state = RunComposerState::new("!a:example.org".to_string(), "ws_1".to_string());
-        assert_eq!(state.validation_error().as_deref(), Some("Prompt is required"));
+        assert_eq!(
+            state.validation_error().as_deref(),
+            Some("Prompt is required")
+        );
         state.set_prompt("Do the thing".to_string());
-        assert_eq!(state.validation_error().as_deref(), Some("Choose a mode (parallel or sequential)"));
+        assert_eq!(
+            state.validation_error().as_deref(),
+            Some("Choose a mode (parallel or sequential)")
+        );
         state.toggle_mode(RunMode::Parallel);
-        assert_eq!(state.validation_error().as_deref(), Some("Select at least one specialist"));
+        assert_eq!(
+            state.validation_error().as_deref(),
+            Some("Select at least one specialist")
+        );
         state.toggle_specialist("pr-reader");
         assert!(state.validation_error().is_none());
     }
@@ -845,7 +879,10 @@ mod tests {
         assert!(!state.is_terminal());
         assert!(state.accept(event(2, api_client::RunEventType::RunCompleted)));
         assert!(state.is_terminal());
-        assert!(!state.accept(event(3, api_client::RunEventType::RunStarted)), "post-terminal rejected");
+        assert!(
+            !state.accept(event(3, api_client::RunEventType::RunStarted)),
+            "post-terminal rejected"
+        );
         assert_eq!(state.events().len(), 2);
     }
 
@@ -855,11 +892,20 @@ mod tests {
         state.set_reconnecting(true);
         assert!(state.reconnecting);
         state.set_deliveries(vec![
-            MatrixDelivery { sequence: 1, status: api_client::MatrixDeliveryStatus::Delivered },
-            MatrixDelivery { sequence: 2, status: api_client::MatrixDeliveryStatus::Pending },
+            MatrixDelivery {
+                sequence: 1,
+                status: api_client::MatrixDeliveryStatus::Delivered,
+            },
+            MatrixDelivery {
+                sequence: 2,
+                status: api_client::MatrixDeliveryStatus::Pending,
+            },
         ]);
         assert_eq!(state.deliveries.len(), 2);
-        assert_eq!(state.deliveries[1].status, api_client::MatrixDeliveryStatus::Pending);
+        assert_eq!(
+            state.deliveries[1].status,
+            api_client::MatrixDeliveryStatus::Pending
+        );
         state.request_cancel();
         assert!(state.cancel_requested);
         assert_eq!(state.error, None);
@@ -867,7 +913,11 @@ mod tests {
 
     #[test]
     fn github_state_starts_on_repositories_panel() {
-        let state = GitHubWorkspaceState::new("ws_1".to_string(), "r1".to_string(), Some("inst_9".to_string()));
+        let state = GitHubWorkspaceState::new(
+            "ws_1".to_string(),
+            "r1".to_string(),
+            Some("inst_9".to_string()),
+        );
         assert_eq!(state.panel, GithubPanel::Repositories);
         assert_eq!(state.installation_id.as_deref(), Some("inst_9"));
     }
@@ -906,15 +956,16 @@ mod tests {
             html_url: "https://github.com/octo/repo".to_string(),
             archived: false,
         }]);
-        let draft = state.begin_mutation("Test issue".to_string()).expect("draft");
+        let draft = state
+            .begin_mutation("Test issue".to_string())
+            .expect("draft");
         assert_eq!(draft.operation, GithubMutationOperation::CreateIssue);
         assert_eq!(draft.repository, "octo/repo");
         assert_eq!(draft.scope, GithubWriteScope::IssuesWrite);
         assert_eq!(draft.arguments["title"], "Test issue");
         assert!(!draft.idempotency_key.is_empty());
         assert_eq!(
-            draft.command_hash,
-            "22a9632d51b690e300e3ef7fb397048392bc84a388c4ef68beb0d42202815fd8",
+            draft.command_hash, "22a9632d51b690e300e3ef7fb397048392bc84a388c4ef68beb0d42202815fd8",
             "must match the mobile/server canonical hash for this command"
         );
     }
@@ -922,7 +973,10 @@ mod tests {
     #[test]
     fn github_state_begin_mutation_requires_repository_and_title() {
         let mut state = GitHubWorkspaceState::new("ws_1".to_string(), "r1".to_string(), None);
-        assert!(state.begin_mutation("Test issue".to_string()).is_none(), "no repository selected");
+        assert!(
+            state.begin_mutation("Test issue".to_string()).is_none(),
+            "no repository selected"
+        );
         state.set_repositories(vec![GithubRepositorySummary {
             id: 1,
             name: "repo".to_string(),
@@ -934,7 +988,10 @@ mod tests {
             html_url: "https://github.com/octo/repo".to_string(),
             archived: false,
         }]);
-        assert!(state.begin_mutation("   ".to_string()).is_none(), "empty title rejected");
+        assert!(
+            state.begin_mutation("   ".to_string()).is_none(),
+            "empty title rejected"
+        );
     }
 
     #[test]
@@ -976,20 +1033,32 @@ mod tests {
             GithubMutationOperation::CreateIssue,
             &serde_json::json!({ "title": "Test issue" }),
         );
-        assert_eq!(hash, "22a9632d51b690e300e3ef7fb397048392bc84a388c4ef68beb0d42202815fd8");
+        assert_eq!(
+            hash,
+            "22a9632d51b690e300e3ef7fb397048392bc84a388c4ef68beb0d42202815fd8"
+        );
 
         let hash_with_body = command_hash(
             GithubMutationOperation::CreateIssue,
             &serde_json::json!({ "body": "Details", "title": "Test issue" }),
         );
-        assert_eq!(hash_with_body, "8c8a0ab437a3a0c5760a8179ab81bcc9b84b31878cf2dede2888c63fa8b4d2b9");
+        assert_eq!(
+            hash_with_body,
+            "8c8a0ab437a3a0c5760a8179ab81bcc9b84b31878cf2dede2888c63fa8b4d2b9"
+        );
     }
 
     #[test]
     fn every_screen_reports_its_id() {
         assert_eq!(Screen::Login(LoginState::default()).id(), ScreenId::Login);
-        assert_eq!(Screen::Workspaces(WorkspacesState::new()).id(), ScreenId::Workspaces);
-        assert_eq!(Screen::Rooms(RoomsState::new("ws_1".to_string())).id(), ScreenId::Rooms);
+        assert_eq!(
+            Screen::Workspaces(WorkspacesState::new()).id(),
+            ScreenId::Workspaces
+        );
+        assert_eq!(
+            Screen::Rooms(RoomsState::new("ws_1".to_string())).id(),
+            ScreenId::Rooms
+        );
         assert_eq!(
             Screen::RoomBinding(RoomBindingState::new(
                 room("!a:example.org", None),
@@ -998,10 +1067,25 @@ mod tests {
             .id(),
             ScreenId::RoomBinding
         );
-        assert_eq!(Screen::RunComposer(RunComposerState::new("!a:example.org".to_string(), "ws_1".to_string())).id(), ScreenId::RunComposer);
-        assert_eq!(Screen::Run(RunState::new("r1".to_string(), "ws_1".to_string())).id(), ScreenId::Run);
         assert_eq!(
-            Screen::GitHubWorkspace(GitHubWorkspaceState::new("ws_1".to_string(), "r1".to_string(), None)).id(),
+            Screen::RunComposer(RunComposerState::new(
+                "!a:example.org".to_string(),
+                "ws_1".to_string()
+            ))
+            .id(),
+            ScreenId::RunComposer
+        );
+        assert_eq!(
+            Screen::Run(RunState::new("r1".to_string(), "ws_1".to_string())).id(),
+            ScreenId::Run
+        );
+        assert_eq!(
+            Screen::GitHubWorkspace(GitHubWorkspaceState::new(
+                "ws_1".to_string(),
+                "r1".to_string(),
+                None
+            ))
+            .id(),
             ScreenId::GitHubWorkspace
         );
     }
