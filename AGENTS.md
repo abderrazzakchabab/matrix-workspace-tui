@@ -33,3 +33,7 @@ Four places where the Group 4 plan's literal code does not compile or contradict
 - Structural: plan steps say "append to the tests module", but a bare `cat >>` lands test code after the module's closing brace (compiles as module-level items, so test counts still pass while httpmock prelude scope breaks). Insert tests before `mod tests`' closing brace and keep `use httpmock::prelude::*;` inside the module.
 
 Verified against the authoritative contract (repo `abderrazzakchabab/matrix-agent-workspace` @ commit `063e2e1`): `RunEvent` fields, the 18 `RUN_EVENT_TYPES`, `TERMINAL_TYPES` (`run.completed`, `run.partial`, `run.failed`, `run.cancelled`), digit-only SSE id ↔ strict integer sequence, runId match, and resume-from-`highestSequence` all mirror `packages/contracts/src/events.ts` + `apps/mobile/src/api/run-events.ts`. Note the plan's sse.rs code blocks are not all rustfmt-clean at 100 cols (long lines); the plan text claims they are.
+
+## Group 5 (state, SessionStore): plan-literal, no corrections
+
+Group 5 (Tasks 5.1–5.4) compiled and passed as written — no plan corrections unlike Groups 3/4. `crates/state/src/session_store.rs` is authoritative. Same caveat as Group 4 applies: the plan's code blocks are not rustfmt-clean at 100 cols (e.g. `load`'s `map_err` chain, the 0600 mode assertion, `default_path` test line); the no-mistakes pipeline applies `cargo fmt` in its fix round. Run cargo through the rustup 1.85.0 toolchain (`rustup which cargo` / prepend its bin dir) — the Homebrew `cargo` 1.93.1 shadows the rustup shim on this machine.
