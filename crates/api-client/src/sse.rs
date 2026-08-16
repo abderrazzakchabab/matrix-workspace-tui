@@ -548,4 +548,90 @@ mod tests {
         assert!(stream.next().await.is_none());
         mock.assert_async().await;
     }
+
+    #[tokio::test]
+    async fn stream_resumes_from_last_sequence_after_drop() {
+        let server = MockServer::start_async().await;
+        let first = server
+            .mock_async(|when, then| {
+                when.method(GET)
+                    .path("/api/runs/r1/events")
+                    .query_param("after", "0");
+                then.status(200)
+                    .header("content-type", "text/event-stream")
+                    .body(event_frame(1, "run.queued") + &event_frame(2, "specialist.started"));
+            })
+            .await;
+        let second = server
+            .mock_async(|when, then| {
+                when.method(GET)
+                    .path("/api/runs/r1/events")
+                    .query_param("after", "2");
+                then.status(200)
+                    .header("content-type", "text/event-stream")
+                    .body(event_frame(3, "run.completed"));
+            })
+            .await;
+
+        let mut stream = EventStream::new(&server.base_url(), "cp_session=abc123", "r1", 0)
+            .with_reconnect_delays(10, 50);
+        let mut sequences = Vec::new();
+        let mut reconnect_afters = Vec::new();
+        for _ in 0..12 {
+            match stream.next().await {
+                Some(Ok(StreamEvent::Run(event))) => {
+                    sequences.push(event.sequence);
+                    if stream.is_terminal() {
+                        break;
+                    }
+                }
+                Some(Ok(StreamEvent::Reconnecting { after, .. })) => {
+                    reconnect_afters.push(after);
+                }
+                Some(Err(error)) => panic!("unexpected error: {error}"),
+                None => break,
+            }
+        }
+        assert_eq!(sequences, vec![1, 2, 3]);
+        assert_eq!(reconnect_afters, vec![2], "resume cursor must be the last sequence");
+        first.assert_async().await;
+        second.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn stream_skips_malformed_frames_without_stopping() {
+        let server = MockServer::start_async().await;
+        let garbage = ": heartbeat\n\n".to_string()
+            + "id: not-a-number\nevent: run.started\ndata: {}\n\n"
+            + "id: 1\nevent: run.started\ndata: not json\n\n"
+            + &event_frame(1, "run.queued")
+            + "id: 2\nevent: run.started\ndata: {\"id\":\"ev_x\",\"runId\":\"OTHER_RUN\",\"sequence\":2,\"type\":\"run.started\",\"version\":1,\"occurredAt\":\"2026-08-15T00:00:00.000Z\",\"visibility\":\"room_and_owner\",\"payload\":{}}\n\n"
+            + &event_frame(3, "run.completed");
+        let mock = server
+            .mock_async(|when, then| {
+                when.method(GET).path("/api/runs/r1/events");
+                then.status(200)
+                    .header("content-type", "text/event-stream")
+                    .body(garbage);
+            })
+            .await;
+
+        let mut stream = EventStream::new(&server.base_url(), "cp_session=abc123", "r1", 0);
+        let mut sequences = Vec::new();
+        for _ in 0..8 {
+            match stream.next().await {
+                Some(Ok(StreamEvent::Run(event))) => {
+                    sequences.push(event.sequence);
+                    if stream.is_terminal() {
+                        break;
+                    }
+                }
+                Some(Ok(StreamEvent::Reconnecting { .. })) => panic!("no reconnect expected"),
+                Some(Err(error)) => panic!("unexpected error: {error}"),
+                None => break,
+            }
+        }
+        assert_eq!(sequences, vec![1, 3], "only valid events for this run are accepted");
+        mock.assert_async().await;
+    }
 }
