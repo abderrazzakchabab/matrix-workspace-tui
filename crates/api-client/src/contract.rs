@@ -165,3 +165,27 @@ pub struct RunMatrixDeliveriesResponse {
     pub run_id: String,
     pub deliveries: Vec<MatrixDelivery>,
 }
+
+/// Paginated GitHub read result (mirrors GithubPage<T>).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GithubPage<T> {
+    pub items: Vec<T>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
+}
+
+/// Mirrors GithubRepositorySummary.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GithubRepositorySummary {
+    pub id: u64,
+    pub name: String,
+    pub full_name: String,
+    pub owner: String,
+    pub private: bool,
+    pub default_branch: String,
+    pub description: Option<String>,
+    pub html_url: String,
+    pub archived: bool,
+}
