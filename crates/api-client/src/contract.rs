@@ -361,3 +361,93 @@ pub struct AuditRecordItem {
     pub details: serde_json::Value,
     pub created_at: String,
 }
+
+/// All allowed event types (mirrors RUN_EVENT_TYPES in
+/// packages/contracts/src/events.ts — the wire names contain dots, so each
+/// variant uses an explicit rename).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RunEventType {
+    #[serde(rename = "run.queued")]
+    RunQueued,
+    #[serde(rename = "run.started")]
+    RunStarted,
+    #[serde(rename = "specialist.started")]
+    SpecialistStarted,
+    #[serde(rename = "specialist.progress")]
+    SpecialistProgress,
+    #[serde(rename = "specialist.completed")]
+    SpecialistCompleted,
+    #[serde(rename = "specialist.failed")]
+    SpecialistFailed,
+    #[serde(rename = "run.partial")]
+    RunPartial,
+    #[serde(rename = "run.checkpointed")]
+    RunCheckpointed,
+    #[serde(rename = "run.retry_scheduled")]
+    RunRetryScheduled,
+    #[serde(rename = "run.cancellation_requested")]
+    RunCancellationRequested,
+    #[serde(rename = "run.cancelled")]
+    RunCancelled,
+    #[serde(rename = "run.completed")]
+    RunCompleted,
+    #[serde(rename = "run.failed")]
+    RunFailed,
+    #[serde(rename = "approval.requested")]
+    ApprovalRequested,
+    #[serde(rename = "approval.recorded")]
+    ApprovalRecorded,
+    #[serde(rename = "mutation.queued")]
+    MutationQueued,
+    #[serde(rename = "mutation.completed")]
+    MutationCompleted,
+    #[serde(rename = "mutation.failed")]
+    MutationFailed,
+}
+
+impl RunEventType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            RunEventType::RunQueued => "run.queued",
+            RunEventType::RunStarted => "run.started",
+            RunEventType::SpecialistStarted => "specialist.started",
+            RunEventType::SpecialistProgress => "specialist.progress",
+            RunEventType::SpecialistCompleted => "specialist.completed",
+            RunEventType::SpecialistFailed => "specialist.failed",
+            RunEventType::RunPartial => "run.partial",
+            RunEventType::RunCheckpointed => "run.checkpointed",
+            RunEventType::RunRetryScheduled => "run.retry_scheduled",
+            RunEventType::RunCancellationRequested => "run.cancellation_requested",
+            RunEventType::RunCancelled => "run.cancelled",
+            RunEventType::RunCompleted => "run.completed",
+            RunEventType::RunFailed => "run.failed",
+            RunEventType::ApprovalRequested => "approval.requested",
+            RunEventType::ApprovalRecorded => "approval.recorded",
+            RunEventType::MutationQueued => "mutation.queued",
+            RunEventType::MutationCompleted => "mutation.completed",
+            RunEventType::MutationFailed => "mutation.failed",
+        }
+    }
+}
+
+/// Mirrors RunEvent.visibility (always `room_and_owner`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EventVisibility {
+    RoomAndOwner,
+}
+
+/// Mirrors RunEvent in packages/contracts/src/events.ts.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunEvent {
+    pub id: String,
+    pub run_id: String,
+    pub sequence: u64,
+    #[serde(rename = "type")]
+    pub event_type: RunEventType,
+    pub version: u32,
+    pub occurred_at: String,
+    pub visibility: EventVisibility,
+    pub payload: serde_json::Value,
+}

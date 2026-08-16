@@ -1,4 +1,4 @@
-// use crate::contract::{EventVisibility, RunEvent, RunEventType}; // uncommented in Task 4.2
+use crate::contract::{EventVisibility, RunEvent, RunEventType};
 use crate::error::ControlPlaneError;
 use crate::http::urlencode;
 use futures_util::StreamExt;
@@ -88,5 +88,159 @@ mod tests {
     fn returns_none_when_no_data_field() {
         assert!(parse_sse_frame(": heartbeat\n\n").is_none());
         assert!(parse_sse_frame("").is_none());
+    }
+
+    #[test]
+    fn run_event_round_trips_camel_case_json() {
+        let json = serde_json::json!({
+            "id": "ev_1",
+            "runId": "r1",
+            "sequence": 1,
+            "type": "run.started",
+            "version": 1,
+            "occurredAt": "2026-08-15T00:00:00.000Z",
+            "visibility": "room_and_owner",
+            "payload": { "note": "x" }
+        });
+        let event: RunEvent = serde_json::from_value(json).unwrap();
+        assert_eq!(event.id, "ev_1");
+        assert_eq!(event.run_id, "r1");
+        assert_eq!(event.sequence, 1);
+        assert_eq!(event.event_type, RunEventType::RunStarted);
+        assert_eq!(event.version, 1);
+        assert_eq!(event.visibility, EventVisibility::RoomAndOwner);
+        assert_eq!(event.event_type.as_str(), "run.started");
+    }
+
+    #[test]
+    fn unknown_event_type_is_rejected() {
+        let json = serde_json::json!({
+            "id": "ev_1",
+            "runId": "r1",
+            "sequence": 1,
+            "type": "run.teleported",
+            "version": 1,
+            "occurredAt": "2026-08-15T00:00:00.000Z",
+            "visibility": "room_and_owner",
+            "payload": {}
+        });
+        assert!(serde_json::from_value::<RunEvent>(json).is_err());
+    }
+
+    #[test]
+    fn all_contract_event_types_parse() {
+        let types = [
+            "run.queued", "run.started", "specialist.started", "specialist.progress",
+            "specialist.completed", "specialist.failed", "run.partial", "run.checkpointed",
+            "run.retry_scheduled", "run.cancellation_requested", "run.cancelled",
+            "run.completed", "run.failed", "approval.requested", "approval.recorded",
+            "mutation.queued", "mutation.completed", "mutation.failed",
+        ];
+        for name in types {
+            let json = serde_json::json!({
+                "id": "ev_1", "runId": "r1", "sequence": 1, "type": name, "version": 1,
+                "occurredAt": "2026-08-15T00:00:00.000Z", "visibility": "room_and_owner", "payload": {}
+            });
+            let event: RunEvent = serde_json::from_value(json).unwrap();
+            assert_eq!(event.event_type.as_str(), name);
+        }
+    }
+
+    #[test]
+    fn from_sse_frame_accepts_valid_frame_for_expected_run() {
+        let frame = SseFrame {
+            id: Some("1".to_string()),
+            event: Some("run.started".to_string()),
+            data: r#"{"id":"ev_1","runId":"r1","sequence":1,"type":"run.started","version":1,"occurredAt":"2026-08-15T00:00:00.000Z","visibility":"room_and_owner","payload":{"note":"x"}}"#.to_string(),
+        };
+        let event = RunEvent::from_sse_frame(&frame, "r1").expect("valid event");
+        assert_eq!(event.sequence, 1);
+        assert_eq!(event.event_type, RunEventType::RunStarted);
+    }
+
+    #[test]
+    fn from_sse_frame_rejects_wrong_run_and_mismatched_event_name() {
+        let data = r#"{"id":"ev_1","runId":"r1","sequence":1,"type":"run.started","version":1,"occurredAt":"2026-08-15T00:00:00.000Z","visibility":"room_and_owner","payload":{}}"#;
+        let wrong_run = SseFrame {
+            id: Some("1".to_string()),
+            event: Some("run.started".to_string()),
+            data: data.to_string(),
+        };
+        assert!(RunEvent::from_sse_frame(&wrong_run, "r2").is_none());
+
+        let mismatched = SseFrame {
+            id: Some("1".to_string()),
+            event: Some("run.completed".to_string()),
+            data: data.to_string(),
+        };
+        assert!(RunEvent::from_sse_frame(&mismatched, "r1").is_none());
+    }
+
+    #[test]
+    fn from_sse_frame_rejects_malformed_wire_data() {
+        let cases = [
+            SseFrame { id: Some("abc".to_string()), event: Some("run.started".to_string()), data: "{}".to_string() },
+            SseFrame { id: Some("1".to_string()), event: None, data: "{}".to_string() },
+            SseFrame { id: Some("1".to_string()), event: Some("run.started".to_string()), data: "not json".to_string() },
+            SseFrame { id: Some("1".to_string()), event: Some("run.started".to_string()), data: r#"{"id":"ev_1","runId":"r1","sequence":9,"type":"run.started","version":1,"occurredAt":"2026-08-15T00:00:00.000Z","visibility":"room_and_owner","payload":{}}"#.to_string() },
+            SseFrame { id: Some("1".to_string()), event: Some("run.started".to_string()), data: r#"{"id":"","runId":"r1","sequence":1,"type":"run.started","version":1,"occurredAt":"2026-08-15T00:00:00.000Z","visibility":"room_and_owner","payload":{}}"#.to_string() },
+            SseFrame { id: Some("1".to_string()), event: Some("run.started".to_string()), data: r#"{"id":"ev_1","runId":"r1","sequence":1,"type":"run.started","version":1,"occurredAt":"2026-08-15T00:00:00.000Z","visibility":"room_and_owner","payload":"not-an-object"}"#.to_string() },
+        ];
+        for frame in cases {
+            assert!(RunEvent::from_sse_frame(&frame, "r1").is_none(), "expected rejection for {frame:?}");
+        }
+    }
+}
+
+/// Terminal event types. Once one of these is accepted, the run is over and
+/// the mobile/TUI stops consuming further events (same policy as the mobile's
+/// TERMINAL_TYPES set).
+pub const TERMINAL_EVENT_TYPES: &[RunEventType] = &[
+    RunEventType::RunCompleted,
+    RunEventType::RunPartial,
+    RunEventType::RunFailed,
+    RunEventType::RunCancelled,
+];
+
+pub fn is_terminal_event(event: &RunEvent) -> bool {
+    TERMINAL_EVENT_TYPES.contains(&event.event_type)
+}
+
+impl RunEvent {
+    /// Validate a candidate parsed from an SSE frame. Returns None when the
+    /// event is malformed, belongs to a different run, or the frame's
+    /// `event:` name disagrees with the JSON `type` — the stream skips it.
+    /// Mirrors `eventFromFrame` + the zod `RunEvent` schema.
+    pub fn from_sse_frame(frame: &SseFrame, expected_run_id: &str) -> Option<RunEvent> {
+        let id = frame.id.as_deref()?;
+        let event_name = frame.event.as_deref()?;
+        if !id.chars().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
+        let sequence: u64 = id.parse().ok()?;
+        let data: serde_json::Value = serde_json::from_str(&frame.data).ok()?;
+        let event = Self::validate(data, expected_run_id, sequence)?;
+        if event.event_type.as_str() != event_name {
+            return None;
+        }
+        Some(event)
+    }
+
+    /// Validate a candidate event object against the wire contract.
+    pub fn validate(value: serde_json::Value, expected_run_id: &str, expected_sequence: u64) -> Option<RunEvent> {
+        let event: RunEvent = serde_json::from_value(value).ok()?;
+        if event.id.is_empty() || event.run_id.is_empty() {
+            return None;
+        }
+        if event.run_id != expected_run_id {
+            return None;
+        }
+        if event.sequence != expected_sequence {
+            return None;
+        }
+        if !event.payload.is_object() {
+            return None;
+        }
+        Some(event)
     }
 }
