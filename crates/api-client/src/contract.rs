@@ -60,3 +60,18 @@ pub struct RoomSummary {
     pub display_name: Option<String>,
     pub workspace_id: Option<String>,
 }
+
+/// POST /api/rooms/:roomId/binding response (mirrors RoomBinding).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoomBinding {
+    pub room_id: String,
+    pub workspace_id: String,
+}
+
+/// POST /api/rooms/:roomId/binding request body.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BindRoomRequest {
+    pub workspace_id: String,
+}
