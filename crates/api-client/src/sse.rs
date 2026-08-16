@@ -634,4 +634,37 @@ mod tests {
         assert_eq!(sequences, vec![1, 3], "only valid events for this run are accepted");
         mock.assert_async().await;
     }
+
+    #[tokio::test]
+    async fn stream_maps_401_to_session_expired() {
+        let server = MockServer::start_async().await;
+        server
+            .mock_async(|when, then| {
+                when.method(GET).path("/api/runs/r1/events");
+                then.status(401);
+            })
+            .await;
+
+        let mut stream = EventStream::new(&server.base_url(), "cp_session=stale", "r1", 0);
+        let error = stream.next().await.expect("yields an error").unwrap_err();
+        assert!(error.is_session_expired());
+    }
+
+    #[tokio::test]
+    async fn stream_maps_404_to_run_not_found() {
+        let server = MockServer::start_async().await;
+        server
+            .mock_async(|when, then| {
+                when.method(GET).path("/api/runs/r1/events");
+                then.status(404).json_body(serde_json::json!({
+                    "error": { "code": "RUN_NOT_FOUND", "message": "Run not found", "requestId": "req_1" }
+                }));
+            })
+            .await;
+
+        let mut stream = EventStream::new(&server.base_url(), "cp_session=abc123", "r1", 0);
+        let error = stream.next().await.expect("yields an error").unwrap_err();
+        assert_eq!(error.status(), Some(404));
+        assert_eq!(error.code(), Some("RUN_NOT_FOUND"));
+    }
 }
