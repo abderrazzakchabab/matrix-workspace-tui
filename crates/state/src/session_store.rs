@@ -166,4 +166,29 @@ mod tests {
         let mode = fs::metadata(dir.path().join("session.json")).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o600, "session file must not be world-readable");
     }
+
+    #[test]
+    fn clear_removes_the_file_and_missing_file_is_not_an_error() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("session.json");
+        let store = SessionStore::at_path(&path);
+        store.save(&SessionData::default()).unwrap();
+        store.clear().unwrap();
+        assert!(!path.exists());
+        store.clear().unwrap(); // second clear on a missing file is fine
+    }
+
+    #[test]
+    fn corrupted_file_surfaces_corrupted_error_then_clear_recovers() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("session.json");
+        fs::write(&path, "{not valid json").unwrap();
+        let store = SessionStore::at_path(&path);
+
+        let error = store.load().unwrap_err();
+        assert!(matches!(error, StateError::Corrupted { .. }));
+
+        store.clear().unwrap();
+        assert_eq!(store.load().unwrap(), SessionData::default());
+    }
 }
