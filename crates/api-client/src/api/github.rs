@@ -1,6 +1,7 @@
 use crate::contract::{GithubPage, GithubPullRequestSummary, GithubRepositorySummary};
 use crate::error::ControlPlaneError;
 use crate::http::{urlencode, ControlPlaneApi};
+use serde_json::json;
 
 impl ControlPlaneApi {
     /// Build the shared `?workspaceId=..&installationId=..[&cursor=..]` query
@@ -75,6 +76,24 @@ impl ControlPlaneApi {
         );
         let path = self.github_read_path(workspace_id, installation_id, &suffix, cursor);
         self.authenticated_request(reqwest::Method::GET, &path, None)
+            .await
+    }
+
+    /// POST /api/workspaces/:workspaceId/github-grants — request a separate
+    /// repository+scope write grant (Phase B read auth never implies write).
+    pub async fn request_github_write_grant(
+        &self,
+        workspace_id: &str,
+        repository: &str,
+        scope: crate::contract::GithubWriteScope,
+    ) -> Result<crate::contract::GithubWriteGrantResult, ControlPlaneError> {
+        use crate::contract::CreateGrantRequest;
+        let body = json!(CreateGrantRequest {
+            repository: repository.to_string(),
+            scope,
+        });
+        let path = format!("/api/workspaces/{}/github-grants", urlencode(workspace_id));
+        self.authenticated_request(reqwest::Method::POST, &path, Some(&body))
             .await
     }
 }
@@ -238,4 +257,36 @@ mod tests {
         assert_eq!(page.items[0].base, "main");
         mock.assert_async().await;
     }
+
+    #[tokio::test]
+    async fn request_github_write_grant_posts_repository_and_scope() {
+        let server = MockServer::start_async().await;
+        let mock = server
+            .mock_async(|when, then| {
+                when.method(POST)
+                    .path("/api/workspaces/ws_1/github-grants")
+                    .body_contains(r#""repository":"octo/repo""#)
+                    .body_contains(r#""scope":"issues:write""#);
+                then.status(201).json_body(json!({
+                    "grantId": "gr_1",
+                    "status": "pending",
+                    "repository": "octo/repo",
+                    "scope": "issues:write"
+                }));
+            })
+            .await;
+
+        let mut client = ControlPlaneApi::new(server.base_url()).unwrap();
+        client.set_cookie(Some("cp_session=abc123".to_string()));
+        let result = client
+            .request_github_write_grant("ws_1", "octo/repo", crate::contract::GithubWriteScope::IssuesWrite)
+            .await
+            .unwrap();
+
+        assert_eq!(result.grant_id, "gr_1");
+        assert_eq!(result.status, crate::contract::GrantStatus::Pending);
+        assert_eq!(result.scope, crate::contract::GithubWriteScope::IssuesWrite);
+        mock.assert_async().await;
+    }
 }
+

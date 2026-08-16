@@ -221,3 +221,41 @@ pub struct GithubPullRequestSummary {
     pub created_at: String,
     pub updated_at: String,
 }
+
+/// GitHub write scope (mirrors GithubWriteScope).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GithubWriteScope {
+    #[serde(rename = "issues:write")]
+    IssuesWrite,
+    #[serde(rename = "pull_requests:write")]
+    PullRequestsWrite,
+}
+
+/// Grant lifecycle status (mirrors GithubWriteGrantResult.status).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GrantStatus {
+    Pending,
+    Approved,
+    Revoked,
+}
+
+/// POST /api/workspaces/:workspaceId/github-grants response
+/// (mirrors GithubWriteGrantResult).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GithubWriteGrantResult {
+    pub grant_id: String,
+    pub status: GrantStatus,
+    pub repository: String,
+    pub scope: GithubWriteScope,
+}
+
+/// POST /api/workspaces/:workspaceId/github-grants request body.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateGrantRequest {
+    pub repository: String,
+    pub scope: GithubWriteScope,
+}
