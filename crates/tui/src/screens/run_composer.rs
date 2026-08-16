@@ -9,24 +9,36 @@ use state::screens::{RunComposerState, SPECIALISTS};
 
 pub fn handle_run_composer_key(state: &mut RunComposerState, key: KeyEvent) -> Command {
     match key.code {
-        KeyCode::Char('q') => Command::Back,
-        KeyCode::Char('p') => {
+        KeyCode::Char(c) if !state.prompt.is_empty() => {
+            let mut value = state.prompt.clone();
+            value.push(c);
+            state.set_prompt(value);
+            Command::None
+        }
+        KeyCode::Backspace if !state.prompt.is_empty() => {
+            let mut value = state.prompt.clone();
+            value.pop();
+            state.set_prompt(value);
+            Command::None
+        }
+        KeyCode::Char('q') if state.prompt.is_empty() => Command::Back,
+        KeyCode::Char('p') if state.prompt.is_empty() => {
             state.toggle_mode(RunMode::Parallel);
             Command::None
         }
-        KeyCode::Char('s') => {
+        KeyCode::Char('s') if state.prompt.is_empty() => {
             state.toggle_mode(RunMode::Sequential);
             Command::None
         }
-        KeyCode::Char(' ') => {
+        KeyCode::Char(' ') if state.prompt.is_empty() => {
             state.toggle_specialist_at_cursor();
             Command::None
         }
-        KeyCode::Char('j') | KeyCode::Down => {
+        KeyCode::Char('j') | KeyCode::Down if state.prompt.is_empty() => {
             state.move_specialist_cursor_next();
             Command::None
         }
-        KeyCode::Char('k') | KeyCode::Up => {
+        KeyCode::Char('k') | KeyCode::Up if state.prompt.is_empty() => {
             state.move_specialist_cursor_prev();
             Command::None
         }
@@ -138,11 +150,6 @@ mod tests {
     fn composer_types_prompt_and_toggles_mode_and_specialists() {
         let mut state = composer();
         assert_eq!(
-            handle_run_composer_key(&mut state, key(KeyCode::Char('h'))),
-            Command::None
-        );
-        assert_eq!(state.prompt, "h");
-        assert_eq!(
             handle_run_composer_key(&mut state, key(KeyCode::Char('p'))),
             Command::None
         );
@@ -158,10 +165,21 @@ mod tests {
         );
         assert_eq!(state.selected_specialists, vec![SPECIALISTS[0].0]);
         assert_eq!(
+            handle_run_composer_key(&mut state, key(KeyCode::Char('h'))),
+            Command::None
+        );
+        assert_eq!(state.prompt, "h");
+        assert_eq!(
+            handle_run_composer_key(&mut state, key(KeyCode::Char('p'))),
+            Command::None
+        );
+        assert_eq!(state.prompt, "hp");
+        assert_eq!(state.mode, Some(RunMode::Sequential));
+        assert_eq!(
             handle_run_composer_key(&mut state, key(KeyCode::Backspace)),
             Command::None
         );
-        assert_eq!(state.prompt, "");
+        assert_eq!(state.prompt, "h");
     }
 
     #[test]

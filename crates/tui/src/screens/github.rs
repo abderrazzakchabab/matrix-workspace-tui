@@ -18,6 +18,36 @@ pub fn handle_github_workspace_key(state: &mut GitHubWorkspaceState, key: KeyEve
         };
     }
     match key.code {
+        KeyCode::Char(c) if state.mutation_mode => {
+            let mut value = state.mutation_title.clone();
+            value.push(c);
+            state.set_mutation_title(value);
+            Command::None
+        }
+        KeyCode::Backspace if state.mutation_mode => {
+            let mut value = state.mutation_title.clone();
+            value.pop();
+            state.set_mutation_title(value);
+            Command::None
+        }
+        KeyCode::Esc if state.mutation_mode => {
+            state.mutation_mode = false;
+            Command::None
+        }
+        KeyCode::Enter if state.mutation_mode => {
+            let title = state.mutation_title.clone();
+            match state.begin_mutation(title) {
+                Some(draft) => {
+                    state.confirmation = Some(draft);
+                    state.mutation_mode = false;
+                    Command::None
+                }
+                None => {
+                    state.error = Some("Provide an issue title before confirming".to_string());
+                    Command::None
+                }
+            }
+        }
         KeyCode::Char('q') => Command::Back,
         KeyCode::Char('1') => {
             state.switch_panel(GithubPanel::Repositories);
@@ -48,32 +78,6 @@ pub fn handle_github_workspace_key(state: &mut GitHubWorkspaceState, key: KeyEve
         KeyCode::Char('m') => {
             state.mutation_mode = !state.mutation_mode;
             Command::None
-        }
-        KeyCode::Char(c) if state.mutation_mode => {
-            let mut value = state.mutation_title.clone();
-            value.push(c);
-            state.set_mutation_title(value);
-            Command::None
-        }
-        KeyCode::Backspace if state.mutation_mode => {
-            let mut value = state.mutation_title.clone();
-            value.pop();
-            state.set_mutation_title(value);
-            Command::None
-        }
-        KeyCode::Enter if state.mutation_mode => {
-            let title = state.mutation_title.clone();
-            match state.begin_mutation(title) {
-                Some(draft) => {
-                    state.confirmation = Some(draft);
-                    state.mutation_mode = false;
-                    Command::None
-                }
-                None => {
-                    state.error = Some("Provide an issue title before confirming".to_string());
-                    Command::None
-                }
-            }
         }
         _ => Command::None,
     }
@@ -220,7 +224,7 @@ pub fn render_github_workspace(state: &GitHubWorkspaceState, frame: &mut Frame, 
     } else {
         let hints = if state.mutation_mode {
             Paragraph::new(format!(
-                "Issue title: {}   (Enter: review, q: cancel)",
+                "Issue title: {}   (Enter: review, Esc: cancel)",
                 state.mutation_title
             ))
         } else {

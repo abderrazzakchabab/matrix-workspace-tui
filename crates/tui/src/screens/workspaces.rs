@@ -8,11 +8,6 @@ use state::screens::WorkspacesState;
 
 pub fn handle_workspaces_key(state: &mut WorkspacesState, key: KeyEvent) -> Command {
     match key.code {
-        KeyCode::Char('q') => Command::Quit,
-        KeyCode::Char('n') => {
-            state.creating = !state.creating;
-            Command::None
-        }
         KeyCode::Char(c) if state.creating => {
             let mut value = state.name_input.clone();
             value.push(c);
@@ -25,7 +20,16 @@ pub fn handle_workspaces_key(state: &mut WorkspacesState, key: KeyEvent) -> Comm
             state.set_name_input(value);
             Command::None
         }
+        KeyCode::Esc if state.creating => {
+            state.creating = false;
+            Command::None
+        }
         KeyCode::Enter if state.creating => Command::CreateWorkspace,
+        KeyCode::Char('q') => Command::Quit,
+        KeyCode::Char('n') => {
+            state.creating = !state.creating;
+            Command::None
+        }
         KeyCode::Char('j') | KeyCode::Down => {
             state.select_next();
             Command::None
