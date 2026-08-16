@@ -4384,7 +4384,7 @@ All pure logic, no I/O. Each task adds one self-contained piece to `crates/state
 - Create: `crates/state/src/screens.rs`
 - Modify: `crates/state/src/lib.rs`
 
-- [ ] **Step 1: Write the failing tests (in `crates/state/src/screens.rs`, `#[cfg(test)] mod tests`)**
+- [x] **Step 1: Write the failing tests (in `crates/state/src/screens.rs`, `#[cfg(test)] mod tests`)**
 
 ```rust
 #[cfg(test)]
@@ -4465,12 +4465,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run the tests to see them fail**
+- [x] **Step 2: Run the tests to see them fail**
 
 Run: `cargo test -p state login_state_defaults_empty_and_validates`
 Expected: compile error — `cannot find type \`LoginState\``.
 
-- [ ] **Step 3: Write the implementation — top of `crates/state/src/screens.rs`**
+- [x] **Step 3: Write the implementation — top of `crates/state/src/screens.rs`**
 
 ```rust
 use api_client::{
@@ -4616,18 +4616,18 @@ impl WorkspacesState {
 
 (Keep the `#[cfg(test)] mod tests` from Step 1 below it.)
 
-- [ ] **Step 4: Wire the module into `crates/state/src/lib.rs`**
+- [x] **Step 4: Wire the module into `crates/state/src/lib.rs`**
 
 ```rust
 pub mod screens;
 ```
 
-- [ ] **Step 5: Run the tests to see them pass**
+- [x] **Step 5: Run the tests to see them pass**
 
 Run: `cargo test -p state`
 Expected: `test result: ok. 12 passed; 0 failed; ...`
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add crates/state/src/screens.rs crates/state/src/lib.rs
@@ -4639,7 +4639,7 @@ git commit -m "feat(state): login and workspaces screen states"
 **Files:**
 - Modify: `crates/state/src/screens.rs`
 
-- [ ] **Step 1: Write the failing tests (append to the `tests` module)**
+- [x] **Step 1: Write the failing tests (append to the `tests` module)**
 
 ```rust
 fn room(id: &str, workspace_id: Option<&str>) -> RoomSummary {
@@ -4692,12 +4692,12 @@ fn room_binding_state_starts_pending_and_marks_bound() {
 }
 ```
 
-- [ ] **Step 2: Run the test to see it fail**
+- [x] **Step 2: Run the test to see it fail**
 
 Run: `cargo test -p state rooms_state_tracks_selection_and_binding`
 Expected: compile error — `cannot find type \`RoomsState\``.
 
-- [ ] **Step 3: Write the implementation (append to `crates/state/src/screens.rs`)**
+- [x] **Step 3: Write the implementation (append to `crates/state/src/screens.rs`)**
 
 ```rust
 #[derive(Debug, Clone, PartialEq)]
@@ -4790,12 +4790,12 @@ impl RoomBindingState {
 }
 ```
 
-- [ ] **Step 4: Run the tests to see them pass**
+- [x] **Step 4: Run the tests to see them pass**
 
 Run: `cargo test -p state`
 Expected: `test result: ok. 16 passed; 0 failed; ...`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/state/src/screens.rs
@@ -4807,7 +4807,7 @@ git commit -m "feat(state): rooms and room binding screen states"
 **Files:**
 - Modify: `crates/state/src/screens.rs`
 
-- [ ] **Step 1: Write the failing tests (append to the `tests` module)**
+- [x] **Step 1: Write the failing tests (append to the `tests` module)**
 
 ```rust
 #[test]
@@ -4866,12 +4866,12 @@ fn composer_moves_the_specialist_cursor_and_toggles_at_cursor() {
 }
 ```
 
-- [ ] **Step 2: Run the test to see it fail**
+- [x] **Step 2: Run the test to see it fail**
 
 Run: `cargo test -p state composer_requires_prompt_mode_and_specialists`
 Expected: compile error — `cannot find type \`RunComposerState\``.
 
-- [ ] **Step 3: Write the implementation (append to `crates/state/src/screens.rs`)**
+- [x] **Step 3: Write the implementation (append to `crates/state/src/screens.rs`)**
 
 ```rust
 #[derive(Debug, Clone, PartialEq)]
@@ -4963,12 +4963,12 @@ impl RunComposerState {
 }
 ```
 
-- [ ] **Step 4: Run the tests to see them pass**
+- [x] **Step 4: Run the tests to see them pass**
 
 Run: `cargo test -p state`
 Expected: `test result: ok. 19 passed; 0 failed; ...`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/state/src/screens.rs
@@ -4980,7 +4980,7 @@ git commit -m "feat(state): run composer state"
 **Files:**
 - Modify: `crates/state/src/screens.rs`
 
-- [ ] **Step 1: Write the failing tests (append to the `tests` module)**
+- [x] **Step 1: Write the failing tests (append to the `tests` module)**
 
 ```rust
 fn event(sequence: u64, event_type: api_client::RunEventType) -> RunEvent {
@@ -5025,12 +5025,12 @@ fn run_state_tracks_deliveries_cancel_and_reconnect() {
 }
 ```
 
-- [ ] **Step 2: Run the test to see it fail**
+- [x] **Step 2: Run the test to see it fail**
 
 Run: `cargo test -p state run_state_accepts_events_and_detects_terminal`
 Expected: compile error — `cannot find type \`RunState\``.
 
-- [ ] **Step 3: Write the implementation (append to `crates/state/src/screens.rs`)**
+- [x] **Step 3: Write the implementation (append to `crates/state/src/screens.rs`)**
 
 ```rust
 #[derive(Debug, Clone, PartialEq)]
@@ -5087,12 +5087,12 @@ impl RunState {
 }
 ```
 
-- [ ] **Step 4: Run the tests to see them pass**
+- [x] **Step 4: Run the tests to see them pass**
 
 Run: `cargo test -p state`
 Expected: `test result: ok. 21 passed; 0 failed; ...`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/state/src/screens.rs
@@ -5105,7 +5105,7 @@ git commit -m "feat(state): run screen state with event buffer"
 - Modify: `crates/state/Cargo.toml` (add uuid)
 - Modify: `crates/state/src/screens.rs`
 
-- [ ] **Step 1: Add the uuid dependency to `crates/state/Cargo.toml`**
+- [x] **Step 1: Add the uuid dependency to `crates/state/Cargo.toml`**
 
 ```toml
 uuid.workspace = true
@@ -5113,7 +5113,7 @@ uuid.workspace = true
 
 (add it to the `[dependencies]` block)
 
-- [ ] **Step 2: Write the failing tests (append to the `tests` module in `crates/state/src/screens.rs`)**
+- [x] **Step 2: Write the failing tests (append to the `tests` module in `crates/state/src/screens.rs`)**
 
 ```rust
 #[test]
@@ -5189,12 +5189,12 @@ fn github_state_begin_mutation_requires_repository_and_title() {
 }
 ```
 
-- [ ] **Step 3: Run the tests to see them fail**
+- [x] **Step 3: Run the tests to see them fail**
 
 Run: `cargo test -p state github_state_starts_on_repositories_panel`
 Expected: compile error — `cannot find type \`GitHubWorkspaceState\``.
 
-- [ ] **Step 4: Write the implementation (append to `crates/state/src/screens.rs`)**
+- [x] **Step 4: Write the implementation (append to `crates/state/src/screens.rs`)**
 
 ```rust
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -5374,12 +5374,12 @@ impl GitHubWorkspaceState {
 }
 ```
 
-- [ ] **Step 5: Run the tests to see them pass**
+- [x] **Step 5: Run the tests to see them pass**
 
 Run: `cargo test -p state github_state_starts_on_repositories_panel github_state_switches_panels_and_clamps_selection github_state_begin_mutation_requires_repository_and_title`
 Expected: the three tests that do not touch `command_hash` pass; `github_state_builds_mutation_confirmation_draft` still fails to compile until Task 6.6 adds `command_hash`. Run the full suite in Step 4 of Task 6.6.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add crates/state/Cargo.toml crates/state/src/screens.rs
@@ -5391,7 +5391,7 @@ git commit -m "feat(state): github workspace state with mutation draft"
 **Files:**
 - Modify: `crates/state/src/screens.rs`
 
-- [ ] **Step 1: Write the failing tests (append to the `tests` module)**
+- [x] **Step 1: Write the failing tests (append to the `tests` module)**
 
 ```rust
 #[test]
@@ -5443,12 +5443,12 @@ fn command_hash_matches_the_control_plane_vector() {
 }
 ```
 
-- [ ] **Step 2: Run the test to see it fail**
+- [x] **Step 2: Run the test to see it fail**
 
 Run: `cargo test -p state command_hash_matches_the_control_plane_vector`
 Expected: compile error — `cannot find function \`command_hash\``.
 
-- [ ] **Step 3: Write the implementation (append to `crates/state/src/screens.rs`)**
+- [x] **Step 3: Write the implementation (append to `crates/state/src/screens.rs`)**
 
 ```rust
 /// The exact confirmation sentence the mobile sends as `confirmationText`
@@ -5516,12 +5516,12 @@ pub fn command_hash(
 }
 ```
 
-- [ ] **Step 4: Run the full state suite**
+- [x] **Step 4: Run the full state suite**
 
 Run: `cargo test -p state`
 Expected: `test result: ok. 24 passed; 0 failed; ...`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/state/src/screens.rs
@@ -5533,7 +5533,7 @@ git commit -m "feat(state): mutation confirmation sentence and canonical command
 **Files:**
 - Modify: `crates/state/src/screens.rs`
 
-- [ ] **Step 1: Write the failing test (append to the `tests` module)**
+- [x] **Step 1: Write the failing test (append to the `tests` module)**
 
 ```rust
 #[test]
@@ -5558,12 +5558,12 @@ fn every_screen_reports_its_id() {
 }
 ```
 
-- [ ] **Step 2: Run the test to see it fail**
+- [x] **Step 2: Run the test to see it fail**
 
 Run: `cargo test -p state every_screen_reports_its_id`
 Expected: compile error — `cannot find type \`Screen\``.
 
-- [ ] **Step 3: Write the implementation (append to `crates/state/src/screens.rs`)**
+- [x] **Step 3: Write the implementation (append to `crates/state/src/screens.rs`)**
 
 ```rust
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -5603,12 +5603,12 @@ impl Screen {
 }
 ```
 
-- [ ] **Step 4: Run the tests to see them pass**
+- [x] **Step 4: Run the tests to see them pass**
 
 Run: `cargo test -p state`
 Expected: `test result: ok. 25 passed; 0 failed; ...`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/state/src/screens.rs
@@ -5620,12 +5620,12 @@ git commit -m "feat(state): screen enum with ids"
 **Files:**
 - none (verification only)
 
-- [ ] **Step 1: Run the full workspace test suite**
+- [x] **Step 1: Run the full workspace test suite**
 
 Run: `cargo test --workspace`
 Expected: `test result: ok.` for `api-client` (52 tests) and `state` (25 tests); the `tui` crate has no tests yet and its placeholder main compiles.
 
-- [ ] **Step 2: Commit any drift (e.g. Cargo.lock)**
+- [x] **Step 2: Commit any drift (e.g. Cargo.lock)**
 
 ```bash
 git add Cargo.lock
