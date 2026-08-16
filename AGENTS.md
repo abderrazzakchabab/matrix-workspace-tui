@@ -37,3 +37,10 @@ Verified against the authoritative contract (repo `abderrazzakchabab/matrix-agen
 ## Group 5 (state, SessionStore): plan-literal, no corrections
 
 Group 5 (Tasks 5.1–5.4) compiled and passed as written — no plan corrections unlike Groups 3/4. `crates/state/src/session_store.rs` is authoritative. Same caveat as Group 4 applies: the plan's code blocks are not rustfmt-clean at 100 cols (e.g. `load`'s `map_err` chain, the 0600 mode assertion, `default_path` test line); the no-mistakes pipeline applies `cargo fmt` in its fix round. Run cargo through the rustup 1.85.0 toolchain (`rustup which cargo` / prepend its bin dir) — the Homebrew `cargo` 1.93.1 shadows the rustup shim on this machine.
+
+## Group 6 (state, screens): plan-literal, two stale spots
+
+Group 6 (Tasks 6.1–6.8) implemented the plan's code as written — `crates/state/src/screens.rs` is authoritative. Two places where the plan text is stale:
+
+- Task 6.5's intermediate tree cannot compile: `GitHubWorkspaceState::begin_mutation` calls `command_hash` from lib code (not just the draft test), so the whole crate fails `cargo test -p state` at 6.5 with `cannot find function command_hash`. The plan claims the three non-hash 6.5 tests pass there — impossible; the 6.5 commit lands red by design and the suite only compiles once Task 6.6 adds the helpers. Follow the plan's commit sequence anyway.
+- The plan's per-task test counts are miscounted (claims 12/16/19/21/24/25; actual is 12/16/20/22/29/30 — 6.3 and 6.5–6.7 are each off by one). The Task 6.8 suite gate actually reports api-client 57 tests + state 30 tests. Same rustfmt caveat as Groups 4/5: the plan's screens.rs blocks are not rustfmt-clean; the no-mistakes pipeline applies `cargo fmt` in its fix round.
