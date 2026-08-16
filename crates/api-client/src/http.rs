@@ -156,6 +156,8 @@ impl ControlPlaneApi {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use httpmock::prelude::*;
+    use serde_json::json;
 
     #[test]
     fn new_normalizes_base_url_and_rejects_empty() {
@@ -179,5 +181,112 @@ mod tests {
         assert_eq!(urlencode("!room:example.org"), "%21room%3Aexample.org");
         assert_eq!(urlencode("a b&c=d"), "a%20b%26c%3Dd");
         assert_eq!(urlencode("plain-id_1.2~3"), "plain-id_1.2~3");
+    }
+
+    #[tokio::test]
+    async fn authenticated_request_sends_cookie_and_parses_body() {
+        let server = MockServer::start_async().await;
+        let mock = server
+            .mock_async(|when, then| {
+                when.method(GET)
+                    .path("/api/rooms")
+                    .header("cookie", "sid=abc");
+                then.status(200).json_body(json!({ "rooms": [] }));
+            })
+            .await;
+        let mut client = ControlPlaneApi::new(server.base_url()).unwrap();
+        client.set_cookie(Some("sid=abc".to_string()));
+        let value: serde_json::Value = client
+            .authenticated_request(reqwest::Method::GET, "/api/rooms", None)
+            .await
+            .unwrap();
+        assert_eq!(value["rooms"], json!([]));
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn authenticated_request_maps_401_to_session_expired() {
+        let server = MockServer::start_async().await;
+        server
+            .mock_async(|when, then| {
+                when.method(GET).path("/api/rooms");
+                then.status(401).json_body(json!({
+                    "error": { "code": "SESSION_REQUIRED", "message": "Sign in again", "requestId": "req_1" }
+                }));
+            })
+            .await;
+        let mut client = ControlPlaneApi::new(server.base_url()).unwrap();
+        client.set_cookie(Some("sid=abc".to_string()));
+        let error = client
+            .authenticated_request::<serde_json::Value>(reqwest::Method::GET, "/api/rooms", None)
+            .await
+            .unwrap_err();
+        assert!(error.is_session_expired());
+    }
+
+    #[tokio::test]
+    async fn authenticated_request_maps_non_ok_status_to_typed_error() {
+        let server = MockServer::start_async().await;
+        server
+            .mock_async(|when, then| {
+                when.method(GET).path("/api/workspaces");
+                then.status(422).json_body(json!({
+                    "error": { "code": "VALIDATION_ERROR", "message": "Invalid workspace", "requestId": "req_1" }
+                }));
+            })
+            .await;
+        let mut client = ControlPlaneApi::new(server.base_url()).unwrap();
+        client.set_cookie(Some("sid=abc".to_string()));
+        let error = client
+            .authenticated_request::<serde_json::Value>(reqwest::Method::GET, "/api/workspaces", None)
+            .await
+            .unwrap_err();
+        assert_eq!(error.status(), Some(422));
+        assert_eq!(error.code(), Some("VALIDATION_ERROR"));
+        assert_eq!(
+            error.to_string(),
+            "control plane returned 422: Invalid workspace"
+        );
+    }
+
+    #[tokio::test]
+    async fn authenticated_request_without_session_is_no_session() {
+        let client = ControlPlaneApi::new("http://localhost:9").unwrap();
+        let error = client
+            .authenticated_request::<serde_json::Value>(reqwest::Method::GET, "/api/rooms", None)
+            .await
+            .unwrap_err();
+        assert!(matches!(error, ControlPlaneError::NoSession));
+    }
+
+    #[tokio::test]
+    async fn authenticated_request_posts_json_body() {
+        let server = MockServer::start_async().await;
+        let mock = server
+            .mock_async(|when, then| {
+                when.method(POST)
+                    .path("/api/workspaces")
+                    .header("content-type", "application/json")
+                    .body_contains(r#""name":"my workspace""#)
+                    .body_contains(r#""readOnly":true"#);
+                then.status(201).json_body(json!({
+                    "requestId": "req_1",
+                    "workspaceId": "ws_1",
+                    "name": "my workspace",
+                    "ownerId": "@u:example.org",
+                    "status": "active",
+                    "createdAt": "2026-08-15T00:00:00.000Z"
+                }));
+            })
+            .await;
+        let mut client = ControlPlaneApi::new(server.base_url()).unwrap();
+        client.set_cookie(Some("sid=abc".to_string()));
+        let body = json!({ "name": "my workspace", "policy": { "readOnly": true } });
+        let value: serde_json::Value = client
+            .authenticated_request(reqwest::Method::POST, "/api/workspaces", Some(&body))
+            .await
+            .unwrap();
+        assert_eq!(value["workspaceId"], "ws_1");
+        mock.assert_async().await;
     }
 }
