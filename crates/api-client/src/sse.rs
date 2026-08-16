@@ -47,9 +47,271 @@ pub fn parse_sse_frame(raw: &str) -> Option<SseFrame> {
     })
 }
 
+/// Terminal event types. Once one of these is accepted, the run is over and
+/// the mobile/TUI stops consuming further events (same policy as the mobile's
+/// TERMINAL_TYPES set).
+pub const TERMINAL_EVENT_TYPES: &[RunEventType] = &[
+    RunEventType::RunCompleted,
+    RunEventType::RunPartial,
+    RunEventType::RunFailed,
+    RunEventType::RunCancelled,
+];
+
+pub fn is_terminal_event(event: &RunEvent) -> bool {
+    TERMINAL_EVENT_TYPES.contains(&event.event_type)
+}
+
+impl RunEvent {
+    /// Validate a candidate parsed from an SSE frame. Returns None when the
+    /// event is malformed, belongs to a different run, or the frame's
+    /// `event:` name disagrees with the JSON `type` — the stream skips it.
+    /// Mirrors `eventFromFrame` + the zod `RunEvent` schema.
+    pub fn from_sse_frame(frame: &SseFrame, expected_run_id: &str) -> Option<RunEvent> {
+        let id = frame.id.as_deref()?;
+        let event_name = frame.event.as_deref()?;
+        if !id.chars().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
+        let sequence: u64 = id.parse().ok()?;
+        let data: serde_json::Value = serde_json::from_str(&frame.data).ok()?;
+        let event = Self::validate(data, expected_run_id, sequence)?;
+        if event.event_type.as_str() != event_name {
+            return None;
+        }
+        Some(event)
+    }
+
+    /// Validate a candidate event object against the wire contract.
+    pub fn validate(value: serde_json::Value, expected_run_id: &str, expected_sequence: u64) -> Option<RunEvent> {
+        let event: RunEvent = serde_json::from_value(value).ok()?;
+        if event.id.is_empty() || event.run_id.is_empty() {
+            return None;
+        }
+        if event.run_id != expected_run_id {
+            return None;
+        }
+        if event.sequence != expected_sequence {
+            return None;
+        }
+        if !event.payload.is_object() {
+            return None;
+        }
+        Some(event)
+    }
+}
+
+/// Ordered buffer of accepted run events. Once a terminal event is accepted,
+/// later events are ignored — stale terminal events and duplicates never
+/// re-enter the timeline (same policy as the mobile's run store).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RunEventBuffer {
+    events: Vec<RunEvent>,
+    terminal: bool,
+}
+
+impl RunEventBuffer {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn events(&self) -> &[RunEvent] {
+        &self.events
+    }
+
+    pub fn is_terminal(&self) -> bool {
+        self.terminal
+    }
+
+    pub fn highest_sequence(&self) -> u64 {
+        self.events.last().map(|event| event.sequence).unwrap_or(0)
+    }
+
+    /// Try to accept an event. Returns true when accepted; false when the
+    /// buffer is already terminal or the sequence is not strictly greater
+    /// than the last accepted one.
+    pub fn accept(&mut self, event: RunEvent) -> bool {
+        if self.terminal {
+            return false;
+        }
+        if event.sequence <= self.highest_sequence() {
+            return false;
+        }
+        if is_terminal_event(&event) {
+            self.terminal = true;
+        }
+        self.events.push(event);
+        true
+    }
+}
+
+/// What the stream yields: a validated run event, or a notification that the
+/// connection dropped and the stream is reconnecting from `after`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum StreamEvent {
+    Run(RunEvent),
+    Reconnecting { attempt: u32, after: u64 },
+}
+
+/// A resumable SSE stream over GET /api/runs/:runId/events. Yields validated
+/// `RunEvent`s; on a dropped connection it reconnects with `?after=<last
+/// sequence>` and exponential backoff. Ends (returns None) after a terminal
+/// event or a fatal error is returned via `Err`.
+pub struct EventStream {
+    http: reqwest::Client,
+    base_url: String,
+    cookie: String,
+    run_id: String,
+    after: u64,
+    terminal: bool,
+    reconnect_attempt: u32,
+    next_reconnect: Option<Instant>,
+    base_delay_ms: u64,
+    max_delay_ms: u64,
+    pending: VecDeque<RunEvent>,
+    buffer: String,
+}
+
+impl EventStream {
+    pub fn new(base_url: &str, cookie: &str, run_id: &str, after: u64) -> Self {
+        Self {
+            http: reqwest::Client::new(),
+            base_url: base_url.trim().trim_end_matches('/').to_string(),
+            cookie: cookie.to_string(),
+            run_id: run_id.to_string(),
+            after,
+            terminal: false,
+            reconnect_attempt: 0,
+            next_reconnect: None,
+            base_delay_ms: 500,
+            max_delay_ms: 8_000,
+            pending: VecDeque::new(),
+            buffer: String::new(),
+        }
+    }
+
+    /// Override reconnect delays (tests use short values).
+    pub fn with_reconnect_delays(mut self, base_delay_ms: u64, max_delay_ms: u64) -> Self {
+        self.base_delay_ms = base_delay_ms.max(10);
+        self.max_delay_ms = self.base_delay_ms.max(max_delay_ms);
+        self
+    }
+
+    pub fn is_terminal(&self) -> bool {
+        self.terminal
+    }
+
+    fn reconnect_delay(&self) -> Duration {
+        let exponential = (self.base_delay_ms as f64 * 2f64.powi(self.reconnect_attempt as i32))
+            .min(self.max_delay_ms as f64);
+        Duration::from_millis(exponential.max(10.0) as u64)
+    }
+
+    fn schedule_reconnect(&mut self) {
+        if self.next_reconnect.is_none() {
+            self.next_reconnect = Some(Instant::now() + self.reconnect_delay());
+        }
+    }
+
+    /// Read one chunk of the body and validate any complete frames.
+    fn consume(&mut self, chunk: &[u8]) -> Result<(), ControlPlaneError> {
+        self.buffer.push_str(&String::from_utf8_lossy(chunk).replace("\r\n", "\n"));
+        while let Some(boundary) = self.buffer.find("\n\n") {
+            let frame_text = self.buffer[..boundary].to_string();
+            self.buffer.drain(..boundary + 2);
+            if self.terminal {
+                continue;
+            }
+            if let Some(frame) = parse_sse_frame(&frame_text) {
+                if let Some(event) = RunEvent::from_sse_frame(&frame, &self.run_id) {
+                    if event.sequence > self.after {
+                        self.pending.push_back(event);
+                    }
+                }
+            }
+            if self.terminal {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    async fn open_and_read(&mut self) -> Result<(), ControlPlaneError> {
+        let url = format!(
+            "{}/api/runs/{}/events?after={}",
+            self.base_url,
+            urlencode(&self.run_id),
+            self.after
+        );
+        let response = self
+            .http
+            .get(url)
+            .header(reqwest::header::COOKIE, &self.cookie)
+            .header(reqwest::header::ACCEPT, "text/event-stream")
+            .send()
+            .await
+            .map_err(ControlPlaneError::Http)?;
+        if response.status() == StatusCode::UNAUTHORIZED {
+            return Err(ControlPlaneError::SessionExpired);
+        }
+        if response.status() == StatusCode::NOT_FOUND {
+            return Err(ControlPlaneError::Api {
+                status: 404,
+                code: Some("RUN_NOT_FOUND".to_string()),
+                message: "Run not found".to_string(),
+            });
+        }
+        if response.status() == StatusCode::TOO_MANY_REQUESTS || response.status().is_server_error() {
+            self.schedule_reconnect();
+            return Ok(());
+        }
+        let mut stream = response.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(ControlPlaneError::Http)?;
+            self.consume(&chunk)?;
+            if self.terminal {
+                return Ok(());
+            }
+        }
+        if self.terminal {
+            return Ok(());
+        }
+        self.schedule_reconnect();
+        Ok(())
+    }
+
+    /// Pull the next item from the stream.
+    pub async fn next(&mut self) -> Option<Result<StreamEvent, ControlPlaneError>> {
+        loop {
+            if self.terminal {
+                return None;
+            }
+            if let Some(event) = self.pending.pop_front() {
+                self.after = event.sequence;
+                if is_terminal_event(&event) {
+                    self.terminal = true;
+                }
+                return Some(Ok(StreamEvent::Run(event)));
+            }
+            if let Some(wait) = self.next_reconnect.take() {
+                tokio::time::sleep_until(wait.into()).await;
+                self.reconnect_attempt += 1;
+                return Some(Ok(StreamEvent::Reconnecting {
+                    attempt: self.reconnect_attempt,
+                    after: self.after,
+                }));
+            }
+            match self.open_and_read().await {
+                Ok(()) => {}
+                Err(error) => return Some(Err(error)),
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use httpmock::prelude::*;
 
     #[test]
     fn parses_id_event_and_data_lines() {
@@ -190,60 +452,6 @@ mod tests {
             assert!(RunEvent::from_sse_frame(&frame, "r1").is_none(), "expected rejection for {frame:?}");
         }
     }
-}
-
-/// Terminal event types. Once one of these is accepted, the run is over and
-/// the mobile/TUI stops consuming further events (same policy as the mobile's
-/// TERMINAL_TYPES set).
-pub const TERMINAL_EVENT_TYPES: &[RunEventType] = &[
-    RunEventType::RunCompleted,
-    RunEventType::RunPartial,
-    RunEventType::RunFailed,
-    RunEventType::RunCancelled,
-];
-
-pub fn is_terminal_event(event: &RunEvent) -> bool {
-    TERMINAL_EVENT_TYPES.contains(&event.event_type)
-}
-
-impl RunEvent {
-    /// Validate a candidate parsed from an SSE frame. Returns None when the
-    /// event is malformed, belongs to a different run, or the frame's
-    /// `event:` name disagrees with the JSON `type` — the stream skips it.
-    /// Mirrors `eventFromFrame` + the zod `RunEvent` schema.
-    pub fn from_sse_frame(frame: &SseFrame, expected_run_id: &str) -> Option<RunEvent> {
-        let id = frame.id.as_deref()?;
-        let event_name = frame.event.as_deref()?;
-        if !id.chars().all(|c| c.is_ascii_digit()) {
-            return None;
-        }
-        let sequence: u64 = id.parse().ok()?;
-        let data: serde_json::Value = serde_json::from_str(&frame.data).ok()?;
-        let event = Self::validate(data, expected_run_id, sequence)?;
-        if event.event_type.as_str() != event_name {
-            return None;
-        }
-        Some(event)
-    }
-
-    /// Validate a candidate event object against the wire contract.
-    pub fn validate(value: serde_json::Value, expected_run_id: &str, expected_sequence: u64) -> Option<RunEvent> {
-        let event: RunEvent = serde_json::from_value(value).ok()?;
-        if event.id.is_empty() || event.run_id.is_empty() {
-            return None;
-        }
-        if event.run_id != expected_run_id {
-            return None;
-        }
-        if event.sequence != expected_sequence {
-            return None;
-        }
-        if !event.payload.is_object() {
-            return None;
-        }
-        Some(event)
-    }
-}
 
     fn sample_event(sequence: u64, event_type: RunEventType) -> RunEvent {
         RunEvent {
@@ -288,46 +496,56 @@ impl RunEvent {
         assert_eq!(buffer.events().len(), 2);
     }
 
-/// Ordered buffer of accepted run events. Once a terminal event is accepted,
-/// later events are ignored — stale terminal events and duplicates never
-/// re-enter the timeline (same policy as the mobile's run store).
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct RunEventBuffer {
-    events: Vec<RunEvent>,
-    terminal: bool,
-}
-
-impl RunEventBuffer {
-    pub fn new() -> Self {
-        Self::default()
+    fn event_frame(sequence: u64, event_type: &str) -> String {
+        let json = serde_json::json!({
+            "id": format!("ev_{sequence}"),
+            "runId": "r1",
+            "sequence": sequence,
+            "type": event_type,
+            "version": 1,
+            "occurredAt": "2026-08-15T00:00:00.000Z",
+            "visibility": "room_and_owner",
+            "payload": { "note": "x" }
+        });
+        format!("id: {sequence}\nevent: {event_type}\ndata: {json}\n\n")
     }
 
-    pub fn events(&self) -> &[RunEvent] {
-        &self.events
-    }
+    #[tokio::test]
+    async fn stream_yields_events_in_order_then_ends_at_terminal() {
+        let server = MockServer::start_async().await;
+        let body = event_frame(1, "run.queued")
+            + &event_frame(2, "specialist.started")
+            + &event_frame(3, "run.completed");
+        let mock = server
+            .mock_async(|when, then| {
+                when.method(GET)
+                    .path("/api/runs/r1/events")
+                    .query_param("after", "0")
+                    .header("cookie", "cp_session=abc123");
+                then.status(200)
+                    .header("content-type", "text/event-stream")
+                    .body(body);
+            })
+            .await;
 
-    pub fn is_terminal(&self) -> bool {
-        self.terminal
-    }
-
-    pub fn highest_sequence(&self) -> u64 {
-        self.events.last().map(|event| event.sequence).unwrap_or(0)
-    }
-
-    /// Try to accept an event. Returns true when accepted; false when the
-    /// buffer is already terminal or the sequence is not strictly greater
-    /// than the last accepted one.
-    pub fn accept(&mut self, event: RunEvent) -> bool {
-        if self.terminal {
-            return false;
+        let mut stream = EventStream::new(&server.base_url(), "cp_session=abc123", "r1", 0);
+        let mut sequences = Vec::new();
+        for _ in 0..8 {
+            match stream.next().await {
+                Some(Ok(StreamEvent::Run(event))) => {
+                    sequences.push(event.sequence);
+                    if stream.is_terminal() {
+                        break;
+                    }
+                }
+                Some(Ok(StreamEvent::Reconnecting { .. })) => panic!("no reconnect expected"),
+                Some(Err(error)) => panic!("unexpected error: {error}"),
+                None => break,
+            }
         }
-        if event.sequence <= self.highest_sequence() {
-            return false;
-        }
-        if is_terminal_event(&event) {
-            self.terminal = true;
-        }
-        self.events.push(event);
-        true
+        assert_eq!(sequences, vec![1, 2, 3]);
+        assert!(stream.is_terminal());
+        assert!(stream.next().await.is_none());
+        mock.assert_async().await;
     }
 }
