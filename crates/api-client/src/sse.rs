@@ -1,4 +1,4 @@
-use crate::contract::{EventVisibility, RunEvent, RunEventType};
+use crate::contract::{RunEvent, RunEventType};
 use crate::error::{ApiErrorBody, ControlPlaneError};
 use crate::http::urlencode;
 use futures_util::StreamExt;
@@ -82,7 +82,11 @@ impl RunEvent {
     }
 
     /// Validate a candidate event object against the wire contract.
-    pub fn validate(value: serde_json::Value, expected_run_id: &str, expected_sequence: u64) -> Option<RunEvent> {
+    pub fn validate(
+        value: serde_json::Value,
+        expected_run_id: &str,
+        expected_sequence: u64,
+    ) -> Option<RunEvent> {
         let event: RunEvent = serde_json::from_value(value).ok()?;
         if event.id.is_empty() || event.run_id.is_empty() {
             return None;
@@ -216,7 +220,8 @@ impl EventStream {
 
     /// Read one chunk of the body and validate any complete frames.
     fn consume(&mut self, chunk: &[u8]) -> Result<(), ControlPlaneError> {
-        self.buffer.push_str(&String::from_utf8_lossy(chunk).replace("\r\n", "\n"));
+        self.buffer
+            .push_str(&String::from_utf8_lossy(chunk).replace("\r\n", "\n"));
         while let Some(boundary) = self.buffer.find("\n\n") {
             let frame_text = self.buffer[..boundary].to_string();
             self.buffer.drain(..boundary + 2);
@@ -277,7 +282,8 @@ impl EventStream {
                 message: "Run not found".to_string(),
             });
         }
-        if response.status() == StatusCode::TOO_MANY_REQUESTS || response.status().is_server_error() {
+        if response.status() == StatusCode::TOO_MANY_REQUESTS || response.status().is_server_error()
+        {
             self.schedule_reconnect();
             return Ok(());
         }
@@ -349,11 +355,13 @@ impl EventStream {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contract::EventVisibility;
     use httpmock::prelude::*;
 
     #[test]
     fn parses_id_event_and_data_lines() {
-        let frame = parse_sse_frame("id: 3\nevent: specialist.started\ndata: {\"a\":1}\n\n").unwrap();
+        let frame =
+            parse_sse_frame("id: 3\nevent: specialist.started\ndata: {\"a\":1}\n\n").unwrap();
         assert_eq!(frame.id.as_deref(), Some("3"));
         assert_eq!(frame.event.as_deref(), Some("specialist.started"));
         assert_eq!(frame.data, "{\"a\":1}");
@@ -430,11 +438,24 @@ mod tests {
     #[test]
     fn all_contract_event_types_parse() {
         let types = [
-            "run.queued", "run.started", "specialist.started", "specialist.progress",
-            "specialist.completed", "specialist.failed", "run.partial", "run.checkpointed",
-            "run.retry_scheduled", "run.cancellation_requested", "run.cancelled",
-            "run.completed", "run.failed", "approval.requested", "approval.recorded",
-            "mutation.queued", "mutation.completed", "mutation.failed",
+            "run.queued",
+            "run.started",
+            "specialist.started",
+            "specialist.progress",
+            "specialist.completed",
+            "specialist.failed",
+            "run.partial",
+            "run.checkpointed",
+            "run.retry_scheduled",
+            "run.cancellation_requested",
+            "run.cancelled",
+            "run.completed",
+            "run.failed",
+            "approval.requested",
+            "approval.recorded",
+            "mutation.queued",
+            "mutation.completed",
+            "mutation.failed",
         ];
         for name in types {
             let json = serde_json::json!({
@@ -487,7 +508,10 @@ mod tests {
             SseFrame { id: Some("1".to_string()), event: Some("run.started".to_string()), data: r#"{"id":"ev_1","runId":"r1","sequence":1,"type":"run.started","version":1,"occurredAt":"2026-08-15T00:00:00.000Z","visibility":"room_and_owner","payload":"not-an-object"}"#.to_string() },
         ];
         for frame in cases {
-            assert!(RunEvent::from_sse_frame(&frame, "r1").is_none(), "expected rejection for {frame:?}");
+            assert!(
+                RunEvent::from_sse_frame(&frame, "r1").is_none(),
+                "expected rejection for {frame:?}"
+            );
         }
     }
 
@@ -518,8 +542,14 @@ mod tests {
     fn buffer_rejects_duplicate_and_out_of_order_events() {
         let mut buffer = RunEventBuffer::new();
         assert!(buffer.accept(sample_event(2, RunEventType::RunStarted)));
-        assert!(!buffer.accept(sample_event(2, RunEventType::RunStarted)), "duplicate rejected");
-        assert!(!buffer.accept(sample_event(1, RunEventType::RunQueued)), "stale rejected");
+        assert!(
+            !buffer.accept(sample_event(2, RunEventType::RunStarted)),
+            "duplicate rejected"
+        );
+        assert!(
+            !buffer.accept(sample_event(1, RunEventType::RunQueued)),
+            "stale rejected"
+        );
         assert_eq!(buffer.events().len(), 1);
     }
 
@@ -529,8 +559,14 @@ mod tests {
         assert!(buffer.accept(sample_event(1, RunEventType::RunStarted)));
         assert!(buffer.accept(sample_event(2, RunEventType::RunCompleted)));
         assert!(buffer.is_terminal());
-        assert!(!buffer.accept(sample_event(3, RunEventType::RunStarted)), "post-terminal ignored");
-        assert!(!buffer.accept(sample_event(3, RunEventType::RunCompleted)), "stale terminal ignored");
+        assert!(
+            !buffer.accept(sample_event(3, RunEventType::RunStarted)),
+            "post-terminal ignored"
+        );
+        assert!(
+            !buffer.accept(sample_event(3, RunEventType::RunCompleted)),
+            "stale terminal ignored"
+        );
         assert_eq!(buffer.events().len(), 2);
     }
 
@@ -631,7 +667,11 @@ mod tests {
             }
         }
         assert_eq!(sequences, vec![1, 2, 3]);
-        assert_eq!(reconnect_afters, vec![2], "resume cursor must be the last sequence");
+        assert_eq!(
+            reconnect_afters,
+            vec![2],
+            "resume cursor must be the last sequence"
+        );
         first.assert_async().await;
         second.assert_async().await;
     }
@@ -669,7 +709,11 @@ mod tests {
                 None => break,
             }
         }
-        assert_eq!(sequences, vec![1, 3], "only valid events for this run are accepted");
+        assert_eq!(
+            sequences,
+            vec![1, 3],
+            "only valid events for this run are accepted"
+        );
         mock.assert_async().await;
     }
 
@@ -734,7 +778,11 @@ mod tests {
                 None => break,
             }
         }
-        assert_eq!(sequences, vec![1], "trailing frame without blank line must be delivered");
+        assert_eq!(
+            sequences,
+            vec![1],
+            "trailing frame without blank line must be delivered"
+        );
         mock.assert_async().await;
     }
 
@@ -842,7 +890,13 @@ mod tests {
             .await
             .expect("a transport failure must not end the stream");
         assert!(
-            matches!(item, Ok(StreamEvent::Reconnecting { attempt: 1, after: 0 })),
+            matches!(
+                item,
+                Ok(StreamEvent::Reconnecting {
+                    attempt: 1,
+                    after: 0
+                })
+            ),
             "expected a reconnect notification, got {item:?}"
         );
     }
@@ -861,7 +915,13 @@ mod tests {
             .with_reconnect_delays(10, 50);
         let item = stream.next().await.expect("429 must schedule a reconnect");
         assert!(
-            matches!(item, Ok(StreamEvent::Reconnecting { attempt: 1, after: 0 })),
+            matches!(
+                item,
+                Ok(StreamEvent::Reconnecting {
+                    attempt: 1,
+                    after: 0
+                })
+            ),
             "expected a reconnect notification, got {item:?}"
         );
         mock.assert_async().await;

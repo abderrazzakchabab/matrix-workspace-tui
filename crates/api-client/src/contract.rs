@@ -166,7 +166,7 @@ pub struct RunMatrixDeliveriesResponse {
     pub deliveries: Vec<MatrixDelivery>,
 }
 
-/// Paginated GitHub read result (mirrors GithubPage<T>).
+/// Paginated GitHub read result (mirrors `GithubPage<T>`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GithubPage<T> {
