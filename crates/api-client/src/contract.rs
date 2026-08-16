@@ -259,3 +259,46 @@ pub struct CreateGrantRequest {
     pub repository: String,
     pub scope: GithubWriteScope,
 }
+
+/// Approval lifecycle status (mirrors RunApprovalResult.status).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalStatus {
+    Approved,
+    Denied,
+}
+
+/// POST /api/runs/:runId/approvals response (mirrors RunApprovalResult).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunApprovalResult {
+    pub approval_id: String,
+    pub status: ApprovalStatus,
+    pub expires_at: String,
+    pub scope: GithubWriteScope,
+}
+
+/// POST /api/runs/:runId/approvals request body (mirrors the mobile
+/// createRunApproval input: approvalType literal + exact confirmation text).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateApprovalRequest {
+    pub approval_type: ApprovalType,
+    pub scope: GithubWriteScope,
+    pub decision: ApprovalDecision,
+    pub confirmation_text: String,
+    pub command_hash: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalType {
+    GithubMutation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalDecision {
+    Approved,
+    Denied,
+}

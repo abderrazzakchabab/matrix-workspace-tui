@@ -52,6 +52,20 @@ impl ControlPlaneApi {
             deliveries: body.matrix_deliveries,
         })
     }
+
+    /// POST /api/runs/:runId/approvals — record the explicit human approval.
+    /// Only ever called from the explicit mutation confirmation action.
+    pub async fn create_run_approval(
+        &self,
+        run_id: &str,
+        request: &crate::contract::CreateApprovalRequest,
+    ) -> Result<crate::contract::RunApprovalResult, ControlPlaneError> {
+        let body = serde_json::to_value(request)
+            .map_err(|e| ControlPlaneError::InvalidResponse(e.to_string()))?;
+        let path = format!("/api/runs/{}/approvals", urlencode(run_id));
+        self.authenticated_request(reqwest::Method::POST, &path, Some(&body))
+            .await
+    }
 }
 
 #[cfg(test)]
@@ -185,6 +199,43 @@ mod tests {
             deliveries.deliveries[0].status,
             crate::contract::MatrixDeliveryStatus::Delivered
         );
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn create_run_approval_posts_exact_confirmation() {
+        let server = MockServer::start_async().await;
+        let mock = server
+            .mock_async(|when, then| {
+                when.method(POST)
+                    .path("/api/runs/r1/approvals")
+                    .body_contains(r#""approvalType":"github_mutation""#)
+                    .body_contains(r#""scope":"issues:write""#)
+                    .body_contains(r#""decision":"approved""#)
+                    .body_contains(r#""confirmationText":"I confirm create issue on octo/repo (issues:write)""#)
+                    .body_contains(r#""commandHash":"22a9632d51b690e300e3ef7fb397048392bc84a388c4ef68beb0d42202815fd8""#);
+                then.status(200).json_body(json!({
+                    "approvalId": "apr_1",
+                    "status": "approved",
+                    "expiresAt": "2026-08-15T01:00:00.000Z",
+                    "scope": "issues:write"
+                }));
+            })
+            .await;
+
+        let mut client = ControlPlaneApi::new(server.base_url()).unwrap();
+        client.set_cookie(Some("cp_session=abc123".to_string()));
+        let request = crate::contract::CreateApprovalRequest {
+            approval_type: crate::contract::ApprovalType::GithubMutation,
+            scope: crate::contract::GithubWriteScope::IssuesWrite,
+            decision: crate::contract::ApprovalDecision::Approved,
+            confirmation_text: "I confirm create issue on octo/repo (issues:write)".to_string(),
+            command_hash: "22a9632d51b690e300e3ef7fb397048392bc84a388c4ef68beb0d42202815fd8".to_string(),
+        };
+        let result = client.create_run_approval("r1", &request).await.unwrap();
+
+        assert_eq!(result.approval_id, "apr_1");
+        assert_eq!(result.status, crate::contract::ApprovalStatus::Approved);
         mock.assert_async().await;
     }
 }
