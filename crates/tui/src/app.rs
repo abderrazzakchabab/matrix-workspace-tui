@@ -175,13 +175,11 @@ impl App {
             Command::RefreshRooms => self.refresh_rooms().await,
             Command::BindRoom => self.bind_room().await,
             Command::LaunchRun => self.launch_run().await,
-            // Command::CancelRun => self.cancel_run().await,
-            // Command::RefreshDeliveries => self.refresh_deliveries().await,
-            // Command::RefreshPanel => self.refresh_github_panel().await,
-            // Command::RequestGrant => self.request_grant().await,
-            // Command::ConfirmMutation => self.confirm_mutation().await,
-            // Async arms restored in Task 7.5.
-            _ => {}
+            Command::CancelRun => self.cancel_run().await,
+            Command::RefreshDeliveries => self.refresh_deliveries().await,
+            Command::RefreshPanel => self.refresh_github_panel().await,
+            Command::RequestGrant => self.request_grant().await,
+            Command::ConfirmMutation => self.confirm_mutation().await,
         }
     }
 
@@ -460,6 +458,258 @@ impl App {
             task.abort();
         }
         self.stream_rx = None;
+    }
+
+    async fn cancel_run(&mut self) {
+        let run_id = match self.current() {
+            Screen::Run(state) => state.run_id.clone(),
+            _ => return,
+        };
+        match self.client.cancel_run(&run_id).await {
+            Ok(_) => {
+                if let Screen::Run(state) = self.current_mut() {
+                    state.request_cancel();
+                }
+                self.set_status("Cancellation requested");
+            }
+            Err(error) => {
+                if error.is_session_expired() {
+                    self.expire_session();
+                    return;
+                }
+                if let Screen::Run(state) = self.current_mut() {
+                    state.error = Some(error.to_string());
+                }
+            }
+        }
+    }
+
+    async fn refresh_deliveries(&mut self) {
+        let run_id = match self.current() {
+            Screen::Run(state) => state.run_id.clone(),
+            _ => return,
+        };
+        match self.client.get_run_matrix_deliveries(&run_id).await {
+            Ok(deliveries) => {
+                if let Screen::Run(state) = self.current_mut() {
+                    state.set_deliveries(deliveries.deliveries);
+                }
+            }
+            Err(error) => {
+                if error.is_session_expired() {
+                    self.expire_session();
+                    return;
+                }
+                if let Screen::Run(state) = self.current_mut() {
+                    state.error = Some(error.to_string());
+                }
+            }
+        }
+    }
+
+    async fn refresh_github_panel(&mut self) {
+        let (workspace_id, installation_id) = match self.current() {
+            Screen::GitHubWorkspace(state) => {
+                (state.workspace_id.clone(), state.installation_id.clone())
+            }
+            _ => return,
+        };
+        let Some(installation_id) = installation_id else {
+            if let Screen::GitHubWorkspace(state) = self.current_mut() {
+                state.error = Some(
+                    "GitHub App not configured: set MATRIX_WORKSPACE_TUI_GITHUB_INSTALLATION_ID"
+                        .to_string(),
+                );
+            }
+            return;
+        };
+        let panel = match self.current() {
+            Screen::GitHubWorkspace(state) => state.panel,
+            _ => return,
+        };
+        match panel {
+            state::screens::GithubPanel::Repositories => {
+                match self
+                    .client
+                    .list_github_repositories(&workspace_id, &installation_id, None)
+                    .await
+                {
+                    Ok(page) => {
+                        if let Screen::GitHubWorkspace(state) = self.current_mut() {
+                            state.set_repositories(page.items);
+                        }
+                    }
+                    Err(error) => self.github_error(error),
+                }
+            }
+            state::screens::GithubPanel::Issues => {
+                let Some((owner, repo)) = self.selected_repo_split() else {
+                    self.set_status("Select a repository first");
+                    return;
+                };
+                match self
+                    .client
+                    .list_github_issues(&workspace_id, &installation_id, &owner, &repo, None)
+                    .await
+                {
+                    Ok(page) => {
+                        if let Screen::GitHubWorkspace(state) = self.current_mut() {
+                            state.set_issues(page.items);
+                        }
+                    }
+                    Err(error) => self.github_error(error),
+                }
+            }
+            state::screens::GithubPanel::PullRequests => {
+                let Some((owner, repo)) = self.selected_repo_split() else {
+                    self.set_status("Select a repository first");
+                    return;
+                };
+                match self
+                    .client
+                    .list_github_pull_requests(&workspace_id, &installation_id, &owner, &repo, None)
+                    .await
+                {
+                    Ok(page) => {
+                        if let Screen::GitHubWorkspace(state) = self.current_mut() {
+                            state.set_pull_requests(page.items);
+                        }
+                    }
+                    Err(error) => self.github_error(error),
+                }
+            }
+            state::screens::GithubPanel::Audit => {
+                match self.client.list_audit_records(&workspace_id, None).await {
+                    Ok(page) => {
+                        if let Screen::GitHubWorkspace(state) = self.current_mut() {
+                            state.set_audit(page.items);
+                        }
+                    }
+                    Err(error) => self.github_error(error),
+                }
+            }
+        }
+    }
+
+    fn selected_repo_split(&self) -> Option<(String, String)> {
+        let repository = match self.current() {
+            Screen::GitHubWorkspace(state) => state.selected_repository(),
+            _ => None,
+        }?;
+        let (owner, repo) = repository.split_once('/')?;
+        Some((owner.to_string(), repo.to_string()))
+    }
+
+    fn github_error(&mut self, error: ControlPlaneError) {
+        if error.is_session_expired() {
+            self.expire_session();
+            return;
+        }
+        if let Screen::GitHubWorkspace(state) = self.current_mut() {
+            state.error = Some(error.to_string());
+        }
+    }
+
+    async fn request_grant(&mut self) {
+        let repository = match self.current() {
+            Screen::GitHubWorkspace(state) => state.selected_repository(),
+            _ => None,
+        };
+        let Some(repository) = repository else {
+            self.set_status("Select a repository first");
+            return;
+        };
+        let workspace_id = match self.current() {
+            Screen::GitHubWorkspace(state) => state.workspace_id.clone(),
+            _ => return,
+        };
+        match self
+            .client
+            .request_github_write_grant(&workspace_id, &repository, api_client::GithubWriteScope::IssuesWrite)
+            .await
+        {
+            Ok(grant) => {
+                if let Screen::GitHubWorkspace(state) = self.current_mut() {
+                    state.set_grant(grant);
+                }
+                self.set_status("Write grant requested (pending approval)");
+            }
+            Err(error) => self.github_error(error),
+        }
+    }
+
+    async fn confirm_mutation(&mut self) {
+        use api_client::{
+            ApprovalDecision, ApprovalType, CreateApprovalRequest, EnqueueMutationRequest,
+        };
+        use state::screens::{confirmation_sentence, MutationFlowStatus};
+
+        let (draft, workspace_id, run_id) = match self.current() {
+            Screen::GitHubWorkspace(state) => match &state.confirmation {
+                Some(draft) => (draft.clone(), state.workspace_id.clone(), state.run_id.clone()),
+                None => return,
+            },
+            _ => return,
+        };
+        // 1. Record the explicit approval (only ever here, on the confirm action).
+        let approval_request = CreateApprovalRequest {
+            approval_type: ApprovalType::GithubMutation,
+            scope: draft.scope,
+            decision: ApprovalDecision::Approved,
+            confirmation_text: confirmation_sentence(draft.operation, &draft.repository, draft.scope),
+            command_hash: draft.command_hash.clone(),
+        };
+        let approval = match self.client.create_run_approval(&run_id, &approval_request).await {
+            Ok(approval) => approval,
+            Err(error) => {
+                self.github_error(error);
+                return;
+            }
+        };
+        // 2. Enqueue the mutation with the same idempotency key.
+        let enqueue_request = EnqueueMutationRequest {
+            idempotency_key: draft.idempotency_key.clone(),
+            approval_id: approval.approval_id,
+            repository: draft.repository.clone(),
+            run_id: Some(run_id),
+            operation: draft.operation,
+            arguments: draft.arguments.clone(),
+        };
+        match self
+            .client
+            .enqueue_github_mutation(&workspace_id, &enqueue_request)
+            .await
+        {
+            Ok(result) => {
+                if let Screen::GitHubWorkspace(state) = self.current_mut() {
+                    state.set_command_id(Some(result.command_id.clone()));
+                    let status = if result.replayed {
+                        MutationFlowStatus::Duplicate
+                    } else {
+                        match result.status {
+                            api_client::MutationStatus::Queued => MutationFlowStatus::Submitted,
+                            api_client::MutationStatus::Completed => MutationFlowStatus::Succeeded,
+                            api_client::MutationStatus::Failed => MutationFlowStatus::Failed,
+                        }
+                    };
+                    state.set_mutation_status(status);
+                    state.confirmation = None;
+                }
+                self.set_status("Mutation queued");
+            }
+            Err(error) => {
+                let status = if error.code() == Some("APPROVAL_EXPIRED") {
+                    MutationFlowStatus::Expired
+                } else if DENIAL_CODES.contains(&error.code().unwrap_or("")) {
+                    MutationFlowStatus::Denied
+                } else {
+                    MutationFlowStatus::Failed
+                };
+                if let Screen::GitHubWorkspace(state) = self.current_mut() {
+                    state.set_mutation_status(status);
+                }
+            }
+        }
     }
 }
 
@@ -742,5 +992,134 @@ mod tests {
         assert!(state.is_terminal());
         assert_eq!(state.events().len(), 2);
         assert_eq!(state.highest_sequence(), 3);
+    }
+
+    #[tokio::test]
+    async fn cancel_run_marks_cancel_requested() {
+        let server = MockServer::start_async().await;
+        server
+            .mock_async(|when, then| {
+                when.method(POST).path("/api/runs/r1/cancel");
+                then.status(202).json_body(json!({
+                    "requestId": "req_1",
+                    "runId": "r1",
+                    "status": "cancellation_requested"
+                }));
+            })
+            .await;
+
+        let dir = tempdir().unwrap();
+        let store = SessionStore::at_path(dir.path().join("session.json"));
+        let mut data = SessionData::default();
+        data.cookie = Some("cp_session=abc123".to_string());
+        store.save(&data).unwrap();
+
+        let mut app = App::new(server.base_url(), SessionStore::at_path(dir.path().join("session.json")));
+        app.push(Screen::Run(state::screens::RunState::new("r1".to_string(), "ws_1".to_string())));
+
+        app.execute_command(Command::CancelRun).await;
+
+        let Screen::Run(state) = app.current() else { panic!("run") };
+        assert!(state.cancel_requested);
+    }
+
+    #[tokio::test]
+    async fn refresh_deliveries_reads_authoritative_status() {
+        let server = MockServer::start_async().await;
+        server
+            .mock_async(|when, then| {
+                when.method(GET).path("/api/runs/r1");
+                then.status(200).json_body(json!({
+                    "requestId": "req_1",
+                    "runId": "r1",
+                    "status": "running",
+                    "mode": "parallel",
+                    "workspaceId": "ws_1",
+                    "roomId": null,
+                    "specialists": [],
+                    "lastSequence": 5,
+                    "matrixDeliveries": [
+                        { "sequence": 1, "status": "delivered" },
+                        { "sequence": 2, "status": "pending" }
+                    ],
+                    "cancelRequestedAt": null
+                }));
+            })
+            .await;
+
+        let dir = tempdir().unwrap();
+        let store = SessionStore::at_path(dir.path().join("session.json"));
+        let mut data = SessionData::default();
+        data.cookie = Some("cp_session=abc123".to_string());
+        store.save(&data).unwrap();
+
+        let mut app = App::new(server.base_url(), SessionStore::at_path(dir.path().join("session.json")));
+        app.push(Screen::Run(state::screens::RunState::new("r1".to_string(), "ws_1".to_string())));
+
+        app.execute_command(Command::RefreshDeliveries).await;
+
+        let Screen::Run(state) = app.current() else { panic!("run") };
+        assert_eq!(state.deliveries.len(), 2);
+        assert_eq!(state.deliveries[0].status, api_client::MatrixDeliveryStatus::Delivered);
+    }
+
+    #[tokio::test]
+    async fn confirm_mutation_records_approval_and_queues_command() {
+        let server = MockServer::start_async().await;
+        server
+            .mock_async(|when, then| {
+                when.method(POST).path("/api/runs/r1/approvals")
+                    .body_contains(r#""approvalType":"github_mutation""#)
+                    .body_contains(r#""decision":"approved""#)
+                    .body_contains(r#""confirmationText":"I confirm create issue on octo/repo (issues:write)""#);
+                then.status(200).json_body(json!({
+                    "approvalId": "apr_1",
+                    "status": "approved",
+                    "expiresAt": "2026-08-15T01:00:00.000Z",
+                    "scope": "issues:write"
+                }));
+            })
+            .await;
+        server
+            .mock_async(|when, then| {
+                when.method(POST).path("/api/workspaces/ws_1/github/mutations")
+                    .body_contains(r#""operation":"create_issue""#)
+                    .body_contains(r#""repository":"octo/repo""#);
+                then.status(202).json_body(json!({
+                    "commandId": "cmd_1",
+                    "status": "queued"
+                }));
+            })
+            .await;
+
+        let dir = tempdir().unwrap();
+        let store = SessionStore::at_path(dir.path().join("session.json"));
+        let mut data = SessionData::default();
+        data.cookie = Some("cp_session=abc123".to_string());
+        store.save(&data).unwrap();
+
+        let mut app = App::new(server.base_url(), SessionStore::at_path(dir.path().join("session.json")));
+        let mut github = state::screens::GitHubWorkspaceState::new("ws_1".to_string(), "r1".to_string(), Some("inst_9".to_string()));
+        github.set_repositories(vec![api_client::GithubRepositorySummary {
+            id: 1,
+            name: "repo".to_string(),
+            full_name: "octo/repo".to_string(),
+            owner: "octo".to_string(),
+            private: false,
+            default_branch: "main".to_string(),
+            description: None,
+            html_url: "https://github.com/octo/repo".to_string(),
+            archived: false,
+        }]);
+        let draft = github.begin_mutation("Test issue".to_string()).unwrap();
+        github.confirmation = Some(draft);
+        app.push(Screen::GitHubWorkspace(github));
+
+        app.execute_command(Command::ConfirmMutation).await;
+
+        let Screen::GitHubWorkspace(state) = app.current() else { panic!("github") };
+        assert_eq!(state.mutation_status, state::screens::MutationFlowStatus::Submitted);
+        assert_eq!(state.command_id.as_deref(), Some("cmd_1"));
+        assert!(state.confirmation.is_none(), "confirmation consumed after enqueue");
     }
 }
