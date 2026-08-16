@@ -227,6 +227,94 @@ impl RoomBindingState {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct RunComposerState {
+    pub prompt: String,
+    pub mode: Option<RunMode>,
+    pub selected_specialists: Vec<String>,
+    pub room_id: String,
+    pub workspace_id: String,
+    /// Index into `SPECIALISTS` for space-to-toggle selection.
+    pub specialist_cursor: usize,
+    pub error: Option<String>,
+    pub launching: bool,
+}
+
+impl RunComposerState {
+    pub fn new(room_id: String, workspace_id: String) -> Self {
+        Self {
+            prompt: String::new(),
+            mode: None,
+            selected_specialists: Vec::new(),
+            room_id,
+            workspace_id,
+            specialist_cursor: 0,
+            error: None,
+            launching: false,
+        }
+    }
+
+    pub fn set_prompt(&mut self, prompt: String) {
+        self.prompt = prompt;
+        self.error = None;
+    }
+
+    pub fn toggle_mode(&mut self, mode: RunMode) {
+        self.mode = Some(mode);
+    }
+
+    pub fn toggle_specialist(&mut self, id: &str) {
+        if let Some(position) = self.selected_specialists.iter().position(|value| value == id) {
+            self.selected_specialists.remove(position);
+        } else {
+            self.selected_specialists.push(id.to_string());
+        }
+    }
+
+    pub fn move_specialist_cursor_next(&mut self) {
+        if self.specialist_cursor + 1 < SPECIALISTS.len() {
+            self.specialist_cursor += 1;
+        }
+    }
+
+    pub fn move_specialist_cursor_prev(&mut self) {
+        self.specialist_cursor = self.specialist_cursor.saturating_sub(1);
+    }
+
+    pub fn toggle_specialist_at_cursor(&mut self) {
+        if let Some((id, _)) = SPECIALISTS.get(self.specialist_cursor) {
+            self.toggle_specialist(id);
+        }
+    }
+
+    pub fn validation_error(&self) -> Option<String> {
+        if self.prompt.trim().is_empty() {
+            return Some("Prompt is required".to_string());
+        }
+        if self.mode.is_none() {
+            return Some("Choose a mode (parallel or sequential)".to_string());
+        }
+        if self.selected_specialists.is_empty() {
+            return Some("Select at least one specialist".to_string());
+        }
+        None
+    }
+
+    /// The validated launch request, or None when the form is invalid.
+    pub fn request(&self) -> Option<RunRequest> {
+        if self.validation_error().is_some() {
+            return None;
+        }
+        Some(RunRequest {
+            prompt: self.prompt.trim().to_string(),
+            mode: self.mode.unwrap(),
+            specialist_ids: self.selected_specialists.clone(),
+            room_id: Some(self.room_id.clone()),
+            github_context: None,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -350,5 +438,60 @@ mod tests {
         assert_eq!(state.workspace_id, "ws_1");
         state.mark_bound();
         assert!(state.done);
+    }
+
+    #[test]
+    fn composer_requires_prompt_mode_and_specialists() {
+        let mut state = RunComposerState::new("!a:example.org".to_string(), "ws_1".to_string());
+        assert_eq!(state.validation_error().as_deref(), Some("Prompt is required"));
+        state.set_prompt("Do the thing".to_string());
+        assert_eq!(state.validation_error().as_deref(), Some("Choose a mode (parallel or sequential)"));
+        state.toggle_mode(RunMode::Parallel);
+        assert_eq!(state.validation_error().as_deref(), Some("Select at least one specialist"));
+        state.toggle_specialist("pr-reader");
+        assert!(state.validation_error().is_none());
+    }
+
+    #[test]
+    fn composer_toggles_specialists_and_mode() {
+        let mut state = RunComposerState::new("!a:example.org".to_string(), "ws_1".to_string());
+        state.toggle_specialist("repo-reader");
+        state.toggle_specialist("pr-reader");
+        assert_eq!(state.selected_specialists, vec!["repo-reader", "pr-reader"]);
+        state.toggle_specialist("repo-reader"); // toggle off
+        assert_eq!(state.selected_specialists, vec!["pr-reader"]);
+        state.toggle_mode(RunMode::Sequential);
+        assert_eq!(state.mode, Some(RunMode::Sequential));
+    }
+
+    #[test]
+    fn composer_request_requires_valid_input_and_carries_room_id() {
+        let mut state = RunComposerState::new("!a:example.org".to_string(), "ws_1".to_string());
+        assert!(state.request().is_none());
+        state.set_prompt("  Do the thing  ".to_string());
+        state.toggle_mode(RunMode::Parallel);
+        state.toggle_specialist("repo-reader");
+        let request = state.request().unwrap();
+        assert_eq!(request.prompt, "Do the thing");
+        assert_eq!(request.mode, RunMode::Parallel);
+        assert_eq!(request.specialist_ids, vec!["repo-reader"]);
+        assert_eq!(request.room_id.as_deref(), Some("!a:example.org"));
+        assert_eq!(request.github_context, None);
+        assert_eq!(state.workspace_id, "ws_1");
+    }
+
+    #[test]
+    fn composer_moves_the_specialist_cursor_and_toggles_at_cursor() {
+        let mut state = RunComposerState::new("!a:example.org".to_string(), "ws_1".to_string());
+        assert_eq!(state.specialist_cursor, 0);
+        state.move_specialist_cursor_next();
+        state.move_specialist_cursor_next();
+        assert_eq!(state.specialist_cursor, 2);
+        state.move_specialist_cursor_next(); // clamps
+        assert_eq!(state.specialist_cursor, 2);
+        state.toggle_specialist_at_cursor();
+        assert_eq!(state.selected_specialists, vec!["pr-reader"]);
+        state.move_specialist_cursor_prev();
+        assert_eq!(state.specialist_cursor, 1);
     }
 }
