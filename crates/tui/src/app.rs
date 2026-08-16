@@ -737,6 +737,10 @@ impl App {
                 self.set_status("Mutation queued");
             }
             Err(error) => {
+                if error.is_session_expired() {
+                    self.expire_session();
+                    return;
+                }
                 let status = if error.code() == Some("APPROVAL_EXPIRED") {
                     MutationFlowStatus::Expired
                 } else if DENIAL_CODES.contains(&error.code().unwrap_or("")) {
