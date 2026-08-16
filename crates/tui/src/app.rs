@@ -1,6 +1,6 @@
 use crate::screens;
 use api_client::{ControlPlaneApi, ControlPlaneError, RunEvent, RunResponse, WorkspaceSelection};
-use crossterm::event::KeyEvent;
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::backend::Backend;
 use ratatui::layout::{Constraint, Layout};
 use ratatui::widgets::Paragraph;
@@ -8,6 +8,7 @@ use ratatui::{Frame, Terminal};
 use state::screens::{RunState, Screen, ScreenId};
 use state::session_store::{SessionData, SessionStore, StateError};
 use std::io;
+use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
@@ -140,9 +141,13 @@ impl App {
             Screen::Workspaces(state) => screens::workspaces::handle_workspaces_key(state, key),
             Screen::Rooms(state) => screens::rooms::handle_rooms_key(state, key),
             Screen::RoomBinding(state) => screens::rooms::handle_room_binding_key(state, key),
-            Screen::RunComposer(state) => screens::run_composer::handle_run_composer_key(state, key),
+            Screen::RunComposer(state) => {
+                screens::run_composer::handle_run_composer_key(state, key)
+            }
             Screen::Run(state) => screens::run::handle_run_key(state, key),
-            Screen::GitHubWorkspace(state) => screens::github::handle_github_workspace_key(state, key),
+            Screen::GitHubWorkspace(state) => {
+                screens::github::handle_github_workspace_key(state, key)
+            }
         }
     }
 
@@ -191,7 +196,10 @@ impl App {
             },
             _ => return,
         };
-        self.push(Screen::RoomBinding(state::screens::RoomBindingState::new(room, workspace_id)));
+        self.push(Screen::RoomBinding(state::screens::RoomBindingState::new(
+            room,
+            workspace_id,
+        )));
     }
 
     fn navigate_to_composer(&mut self) {
@@ -202,7 +210,10 @@ impl App {
             },
             _ => return,
         };
-        self.push(Screen::RunComposer(state::screens::RunComposerState::new(room_id, workspace_id)));
+        self.push(Screen::RunComposer(state::screens::RunComposerState::new(
+            room_id,
+            workspace_id,
+        )));
     }
 
     fn navigate_to_github_workspace(&mut self) {
@@ -224,7 +235,11 @@ impl App {
             ),
             _ => return,
         };
-        match self.client.create_matrix_session(&homeserver_url, &access_token).await {
+        match self
+            .client
+            .create_matrix_session(&homeserver_url, &access_token)
+            .await
+        {
             Ok(_) => {
                 let cookie = self.client.cookie().map(|value| value.to_string());
                 let data = SessionData {
@@ -283,13 +298,17 @@ impl App {
 
     async fn navigate_to_rooms(&mut self) {
         let workspace_id = match self.current() {
-            Screen::Workspaces(state) => state.selected().map(|workspace| workspace.workspace_id.clone()),
+            Screen::Workspaces(state) => state
+                .selected()
+                .map(|workspace| workspace.workspace_id.clone()),
             _ => None,
         };
         let Some(workspace_id) = workspace_id else {
             return;
         };
-        self.push(Screen::Rooms(state::screens::RoomsState::new(workspace_id.clone())));
+        self.push(Screen::Rooms(state::screens::RoomsState::new(
+            workspace_id.clone(),
+        )));
         if let Screen::Rooms(state) = self.current_mut() {
             state.loading = true;
         }
@@ -358,7 +377,11 @@ impl App {
             _ => return,
         };
         let idempotency_key = uuid::Uuid::new_v4().to_string();
-        match self.client.launch_run(&workspace_id, &request, &idempotency_key).await {
+        match self
+            .client
+            .launch_run(&workspace_id, &request, &idempotency_key)
+            .await
+        {
             Ok(run) => {
                 self.enter_run(run, workspace_id);
                 self.set_status("Run launched");
@@ -625,7 +648,11 @@ impl App {
         };
         match self
             .client
-            .request_github_write_grant(&workspace_id, &repository, api_client::GithubWriteScope::IssuesWrite)
+            .request_github_write_grant(
+                &workspace_id,
+                &repository,
+                api_client::GithubWriteScope::IssuesWrite,
+            )
             .await
         {
             Ok(grant) => {
@@ -646,7 +673,11 @@ impl App {
 
         let (draft, workspace_id, run_id) = match self.current() {
             Screen::GitHubWorkspace(state) => match &state.confirmation {
-                Some(draft) => (draft.clone(), state.workspace_id.clone(), state.run_id.clone()),
+                Some(draft) => (
+                    draft.clone(),
+                    state.workspace_id.clone(),
+                    state.run_id.clone(),
+                ),
                 None => return,
             },
             _ => return,
@@ -656,10 +687,18 @@ impl App {
             approval_type: ApprovalType::GithubMutation,
             scope: draft.scope,
             decision: ApprovalDecision::Approved,
-            confirmation_text: confirmation_sentence(draft.operation, &draft.repository, draft.scope),
+            confirmation_text: confirmation_sentence(
+                draft.operation,
+                &draft.repository,
+                draft.scope,
+            ),
             command_hash: draft.command_hash.clone(),
         };
-        let approval = match self.client.create_run_approval(&run_id, &approval_request).await {
+        let approval = match self
+            .client
+            .create_run_approval(&run_id, &approval_request)
+            .await
+        {
             Ok(approval) => approval,
             Err(error) => {
                 self.github_error(error);
@@ -711,6 +750,90 @@ impl App {
             }
         }
     }
+
+    /// Draw the current screen plus the one-line status bar.
+    pub fn draw(&mut self, frame: &mut Frame) {
+        let chunks =
+            Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(frame.area());
+        match self.current_mut() {
+            Screen::Login(state) => screens::login::render_login(state, frame, chunks[0]),
+            Screen::Workspaces(state) => {
+                screens::workspaces::render_workspaces(state, frame, chunks[0])
+            }
+            Screen::Rooms(state) => screens::rooms::render_rooms(state, frame, chunks[0]),
+            Screen::RoomBinding(state) => {
+                screens::rooms::render_room_binding(state, frame, chunks[0])
+            }
+            Screen::RunComposer(state) => {
+                screens::run_composer::render_run_composer(state, frame, chunks[0])
+            }
+            Screen::Run(state) => screens::run::render_run(state, frame, chunks[0]),
+            Screen::GitHubWorkspace(state) => {
+                screens::github::render_github_workspace(state, frame, chunks[0])
+            }
+        }
+        let status = self
+            .status
+            .as_deref()
+            .map(|message| format!(" {message}"))
+            .unwrap_or_default();
+        frame.render_widget(Paragraph::new(status), chunks[1]);
+    }
+
+    /// The main event loop: poll keys, execute commands, drain stream events,
+    /// redraw. Returns when the user quits.
+    pub async fn run<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<(), AppError> {
+        loop {
+            terminal.draw(|frame| self.draw(frame))?;
+            if self.should_quit {
+                break;
+            }
+            if crossterm::event::poll(Duration::from_millis(100))? {
+                let event = crossterm::event::read()?;
+                match event {
+                    Event::Key(key) if key.kind == KeyEventKind::Press => {
+                        let command = self.handle_key(key);
+                        self.execute_command(command).await;
+                    }
+                    Event::Paste(text) => self.handle_paste(&text),
+                    _ => {}
+                }
+            }
+            self.drain_stream_events();
+            if self.should_quit {
+                break;
+            }
+        }
+        self.abort_stream();
+        Ok(())
+    }
+
+    /// Bracketed paste: append into the active text field.
+    fn handle_paste(&mut self, text: &str) {
+        match self.current_mut() {
+            Screen::Login(state) => state.insert_text(text),
+            Screen::Workspaces(state) => {
+                if state.creating {
+                    let mut value = state.name_input.clone();
+                    value.push_str(text);
+                    state.set_name_input(value);
+                }
+            }
+            Screen::RunComposer(state) => {
+                let mut value = state.prompt.clone();
+                value.push_str(text);
+                state.set_prompt(value);
+            }
+            Screen::GitHubWorkspace(state) => {
+                if state.mutation_mode {
+                    let mut value = state.mutation_title.clone();
+                    value.push_str(text);
+                    state.set_mutation_title(value);
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 #[cfg(test)]
@@ -723,7 +846,10 @@ mod tests {
     #[test]
     fn app_starts_on_login_without_session() {
         let dir = tempdir().unwrap();
-        let app = App::new("http://localhost:3000".to_string(), SessionStore::at_path(dir.path().join("session.json")));
+        let app = App::new(
+            "http://localhost:3000".to_string(),
+            SessionStore::at_path(dir.path().join("session.json")),
+        );
         assert_eq!(app.current().id(), ScreenId::Login);
         assert_eq!(app.stack.len(), 1);
     }
@@ -743,18 +869,28 @@ mod tests {
         });
         store.save(&data).unwrap();
 
-        let app = App::new("http://localhost:3000".to_string(), SessionStore::at_path(dir.path().join("session.json")));
+        let app = App::new(
+            "http://localhost:3000".to_string(),
+            SessionStore::at_path(dir.path().join("session.json")),
+        );
         assert_eq!(app.current().id(), ScreenId::Workspaces);
         assert_eq!(app.client.cookie(), Some("cp_session=abc123"));
-        let Screen::Workspaces(state) = app.current() else { panic!("workspaces") };
+        let Screen::Workspaces(state) = app.current() else {
+            panic!("workspaces")
+        };
         assert_eq!(state.workspaces.len(), 1);
     }
 
     #[test]
     fn push_pop_preserves_order_and_aborts_run_stream() {
         let dir = tempdir().unwrap();
-        let mut app = App::new("http://localhost:3000".to_string(), SessionStore::at_path(dir.path().join("session.json")));
-        app.push(Screen::Rooms(state::screens::RoomsState::new("ws_1".to_string())));
+        let mut app = App::new(
+            "http://localhost:3000".to_string(),
+            SessionStore::at_path(dir.path().join("session.json")),
+        );
+        app.push(Screen::Rooms(state::screens::RoomsState::new(
+            "ws_1".to_string(),
+        )));
         assert_eq!(app.current().id(), ScreenId::Rooms);
         let popped = app.pop();
         assert!(matches!(popped, Some(Screen::Rooms(_))));
@@ -770,7 +906,10 @@ mod tests {
     #[test]
     fn login_key_q_quits_and_other_keys_are_noops() {
         let dir = tempdir().unwrap();
-        let mut app = App::new("http://localhost:3000".to_string(), SessionStore::at_path(dir.path().join("session.json")));
+        let mut app = App::new(
+            "http://localhost:3000".to_string(),
+            SessionStore::at_path(dir.path().join("session.json")),
+        );
         assert_eq!(app.handle_key(key(KeyCode::Char('q'))), Command::Quit);
         assert_eq!(app.handle_key(key(KeyCode::Char('x'))), Command::None);
     }
@@ -782,15 +921,23 @@ mod tests {
         let mut data = SessionData::default();
         data.cookie = Some("cp_session=abc123".to_string());
         store.save(&data).unwrap();
-        let mut app = App::new("http://localhost:3000".to_string(), SessionStore::at_path(dir.path().join("session.json")));
+        let mut app = App::new(
+            "http://localhost:3000".to_string(),
+            SessionStore::at_path(dir.path().join("session.json")),
+        );
         assert_eq!(app.handle_key(key(KeyCode::Char('q'))), Command::Quit);
     }
 
     #[tokio::test]
     async fn back_command_pops_to_previous_screen() {
         let dir = tempdir().unwrap();
-        let mut app = App::new("http://localhost:3000".to_string(), SessionStore::at_path(dir.path().join("session.json")));
-        app.push(Screen::Rooms(state::screens::RoomsState::new("ws_1".to_string())));
+        let mut app = App::new(
+            "http://localhost:3000".to_string(),
+            SessionStore::at_path(dir.path().join("session.json")),
+        );
+        app.push(Screen::Rooms(state::screens::RoomsState::new(
+            "ws_1".to_string(),
+        )));
         app.execute_command(Command::Back).await;
         assert_eq!(app.current().id(), ScreenId::Login);
     }
@@ -798,7 +945,10 @@ mod tests {
     #[tokio::test]
     async fn back_at_root_quits() {
         let dir = tempdir().unwrap();
-        let mut app = App::new("http://localhost:3000".to_string(), SessionStore::at_path(dir.path().join("session.json")));
+        let mut app = App::new(
+            "http://localhost:3000".to_string(),
+            SessionStore::at_path(dir.path().join("session.json")),
+        );
         app.execute_command(Command::Back).await;
         assert!(app.should_quit);
     }
@@ -806,7 +956,10 @@ mod tests {
     #[tokio::test]
     async fn navigate_to_room_binding_pushes_binding_screen() {
         let dir = tempdir().unwrap();
-        let mut app = App::new("http://localhost:3000".to_string(), SessionStore::at_path(dir.path().join("session.json")));
+        let mut app = App::new(
+            "http://localhost:3000".to_string(),
+            SessionStore::at_path(dir.path().join("session.json")),
+        );
         let mut rooms = state::screens::RoomsState::new("ws_1".to_string());
         rooms.set_rooms(vec![api_client::RoomSummary {
             room_id: "!a:example.org".to_string(),
@@ -822,7 +975,10 @@ mod tests {
     #[tokio::test]
     async fn navigate_to_composer_pushes_composer_screen() {
         let dir = tempdir().unwrap();
-        let mut app = App::new("http://localhost:3000".to_string(), SessionStore::at_path(dir.path().join("session.json")));
+        let mut app = App::new(
+            "http://localhost:3000".to_string(),
+            SessionStore::at_path(dir.path().join("session.json")),
+        );
         let mut rooms = state::screens::RoomsState::new("ws_1".to_string());
         rooms.set_rooms(vec![api_client::RoomSummary {
             room_id: "!a:example.org".to_string(),
@@ -833,7 +989,9 @@ mod tests {
         app.push(Screen::Rooms(rooms));
         app.execute_command(Command::NavigateToComposer).await;
         assert_eq!(app.current().id(), ScreenId::RunComposer);
-        let Screen::RunComposer(composer) = app.current() else { panic!("composer") };
+        let Screen::RunComposer(composer) = app.current() else {
+            panic!("composer")
+        };
         assert_eq!(composer.room_id, "!a:example.org");
         assert_eq!(composer.workspace_id, "ws_1");
     }
@@ -857,8 +1015,13 @@ mod tests {
             .await;
 
         let dir = tempdir().unwrap();
-        let mut app = App::new(server.base_url(), SessionStore::at_path(dir.path().join("session.json")));
-        let Screen::Login(state) = app.current_mut() else { panic!("login") };
+        let mut app = App::new(
+            server.base_url(),
+            SessionStore::at_path(dir.path().join("session.json")),
+        );
+        let Screen::Login(state) = app.current_mut() else {
+            panic!("login")
+        };
         state.set_homeserver_url("https://matrix.example.org".to_string());
         state.set_access_token("tok_1".to_string());
 
@@ -866,7 +1029,9 @@ mod tests {
 
         assert_eq!(app.current().id(), ScreenId::Workspaces);
         assert_eq!(app.client.cookie(), Some("cp_session=abc123"));
-        let stored = SessionStore::at_path(dir.path().join("session.json")).load().unwrap();
+        let stored = SessionStore::at_path(dir.path().join("session.json"))
+            .load()
+            .unwrap();
         assert_eq!(stored.cookie.as_deref(), Some("cp_session=abc123"));
     }
 
@@ -893,17 +1058,26 @@ mod tests {
         data.cookie = Some("cp_session=abc123".to_string());
         store.save(&data).unwrap();
 
-        let mut app = App::new(server.base_url(), SessionStore::at_path(dir.path().join("session.json")));
-        let Screen::Workspaces(state) = app.current_mut() else { panic!("workspaces") };
+        let mut app = App::new(
+            server.base_url(),
+            SessionStore::at_path(dir.path().join("session.json")),
+        );
+        let Screen::Workspaces(state) = app.current_mut() else {
+            panic!("workspaces")
+        };
         state.creating = true;
         state.set_name_input("ops".to_string());
 
         app.execute_command(Command::CreateWorkspace).await;
 
-        let Screen::Workspaces(state) = app.current() else { panic!("workspaces") };
+        let Screen::Workspaces(state) = app.current() else {
+            panic!("workspaces")
+        };
         assert_eq!(state.workspaces.len(), 1);
         assert_eq!(state.workspaces[0].workspace_id, "ws_new");
-        let stored = SessionStore::at_path(dir.path().join("session.json")).load().unwrap();
+        let stored = SessionStore::at_path(dir.path().join("session.json"))
+            .load()
+            .unwrap();
         assert_eq!(stored.workspaces.len(), 1);
         assert_eq!(stored.workspaces[0].name, "ops");
     }
@@ -924,16 +1098,27 @@ mod tests {
         data.cookie = Some("cp_session=stale".to_string());
         store.save(&data).unwrap();
 
-        let mut app = App::new(server.base_url(), SessionStore::at_path(dir.path().join("session.json")));
-        app.push(Screen::Rooms(state::screens::RoomsState::new("ws_1".to_string())));
+        let mut app = App::new(
+            server.base_url(),
+            SessionStore::at_path(dir.path().join("session.json")),
+        );
+        app.push(Screen::Rooms(state::screens::RoomsState::new(
+            "ws_1".to_string(),
+        )));
 
         app.execute_command(Command::RefreshRooms).await;
 
         assert_eq!(app.current().id(), ScreenId::Login);
         assert_eq!(app.client.cookie(), None);
-        let stored = SessionStore::at_path(dir.path().join("session.json")).load().unwrap();
+        let stored = SessionStore::at_path(dir.path().join("session.json"))
+            .load()
+            .unwrap();
         assert_eq!(stored.cookie, None, "stale session cleared from disk");
-        assert!(app.status.as_deref().unwrap_or("").contains("Session expired"));
+        assert!(app
+            .status
+            .as_deref()
+            .unwrap_or("")
+            .contains("Session expired"));
     }
 
     #[tokio::test]
@@ -973,8 +1158,12 @@ mod tests {
         data.cookie = Some("cp_session=abc123".to_string());
         store.save(&data).unwrap();
 
-        let mut app = App::new(server.base_url(), SessionStore::at_path(dir.path().join("session.json")));
-        let mut composer = state::screens::RunComposerState::new("!a:example.org".to_string(), "ws_1".to_string());
+        let mut app = App::new(
+            server.base_url(),
+            SessionStore::at_path(dir.path().join("session.json")),
+        );
+        let mut composer =
+            state::screens::RunComposerState::new("!a:example.org".to_string(), "ws_1".to_string());
         composer.set_prompt("Go".to_string());
         composer.toggle_mode(api_client::RunMode::Parallel);
         composer.toggle_specialist("repo-reader");
@@ -987,7 +1176,9 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(150)).await;
         app.drain_stream_events();
 
-        let Screen::Run(state) = app.current() else { panic!("run") };
+        let Screen::Run(state) = app.current() else {
+            panic!("run")
+        };
         assert_eq!(state.run_id, "r1");
         assert!(state.is_terminal());
         assert_eq!(state.events().len(), 2);
@@ -1014,12 +1205,20 @@ mod tests {
         data.cookie = Some("cp_session=abc123".to_string());
         store.save(&data).unwrap();
 
-        let mut app = App::new(server.base_url(), SessionStore::at_path(dir.path().join("session.json")));
-        app.push(Screen::Run(state::screens::RunState::new("r1".to_string(), "ws_1".to_string())));
+        let mut app = App::new(
+            server.base_url(),
+            SessionStore::at_path(dir.path().join("session.json")),
+        );
+        app.push(Screen::Run(state::screens::RunState::new(
+            "r1".to_string(),
+            "ws_1".to_string(),
+        )));
 
         app.execute_command(Command::CancelRun).await;
 
-        let Screen::Run(state) = app.current() else { panic!("run") };
+        let Screen::Run(state) = app.current() else {
+            panic!("run")
+        };
         assert!(state.cancel_requested);
     }
 
@@ -1053,14 +1252,25 @@ mod tests {
         data.cookie = Some("cp_session=abc123".to_string());
         store.save(&data).unwrap();
 
-        let mut app = App::new(server.base_url(), SessionStore::at_path(dir.path().join("session.json")));
-        app.push(Screen::Run(state::screens::RunState::new("r1".to_string(), "ws_1".to_string())));
+        let mut app = App::new(
+            server.base_url(),
+            SessionStore::at_path(dir.path().join("session.json")),
+        );
+        app.push(Screen::Run(state::screens::RunState::new(
+            "r1".to_string(),
+            "ws_1".to_string(),
+        )));
 
         app.execute_command(Command::RefreshDeliveries).await;
 
-        let Screen::Run(state) = app.current() else { panic!("run") };
+        let Screen::Run(state) = app.current() else {
+            panic!("run")
+        };
         assert_eq!(state.deliveries.len(), 2);
-        assert_eq!(state.deliveries[0].status, api_client::MatrixDeliveryStatus::Delivered);
+        assert_eq!(
+            state.deliveries[0].status,
+            api_client::MatrixDeliveryStatus::Delivered
+        );
     }
 
     #[tokio::test]
@@ -1082,7 +1292,8 @@ mod tests {
             .await;
         server
             .mock_async(|when, then| {
-                when.method(POST).path("/api/workspaces/ws_1/github/mutations")
+                when.method(POST)
+                    .path("/api/workspaces/ws_1/github/mutations")
                     .body_contains(r#""operation":"create_issue""#)
                     .body_contains(r#""repository":"octo/repo""#);
                 then.status(202).json_body(json!({
@@ -1098,8 +1309,15 @@ mod tests {
         data.cookie = Some("cp_session=abc123".to_string());
         store.save(&data).unwrap();
 
-        let mut app = App::new(server.base_url(), SessionStore::at_path(dir.path().join("session.json")));
-        let mut github = state::screens::GitHubWorkspaceState::new("ws_1".to_string(), "r1".to_string(), Some("inst_9".to_string()));
+        let mut app = App::new(
+            server.base_url(),
+            SessionStore::at_path(dir.path().join("session.json")),
+        );
+        let mut github = state::screens::GitHubWorkspaceState::new(
+            "ws_1".to_string(),
+            "r1".to_string(),
+            Some("inst_9".to_string()),
+        );
         github.set_repositories(vec![api_client::GithubRepositorySummary {
             id: 1,
             name: "repo".to_string(),
@@ -1117,9 +1335,87 @@ mod tests {
 
         app.execute_command(Command::ConfirmMutation).await;
 
-        let Screen::GitHubWorkspace(state) = app.current() else { panic!("github") };
-        assert_eq!(state.mutation_status, state::screens::MutationFlowStatus::Submitted);
+        let Screen::GitHubWorkspace(state) = app.current() else {
+            panic!("github")
+        };
+        assert_eq!(
+            state.mutation_status,
+            state::screens::MutationFlowStatus::Submitted
+        );
         assert_eq!(state.command_id.as_deref(), Some("cmd_1"));
-        assert!(state.confirmation.is_none(), "confirmation consumed after enqueue");
+        assert!(
+            state.confirmation.is_none(),
+            "confirmation consumed after enqueue"
+        );
+    }
+
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+
+    #[test]
+    fn draw_shows_status_bar_and_renders_current_screen() {
+        let dir = tempdir().unwrap();
+        let mut app = App::new(
+            "http://localhost:3000".to_string(),
+            SessionStore::at_path(dir.path().join("session.json")),
+        );
+        app.set_status("hello status");
+        let backend = TestBackend::new(40, 4);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+        let rendered: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol().to_string())
+            .collect();
+        assert!(
+            rendered.contains("hello status"),
+            "status bar rendered: {rendered}"
+        );
+    }
+
+    #[test]
+    fn draw_renders_run_screen_without_panicking() {
+        let dir = tempdir().unwrap();
+        let mut app = App::new(
+            "http://localhost:3000".to_string(),
+            SessionStore::at_path(dir.path().join("session.json")),
+        );
+        let mut run = state::screens::RunState::new("r1".to_string(), "ws_1".to_string());
+        run.accept(api_client::RunEvent {
+            id: "ev_1".to_string(),
+            run_id: "r1".to_string(),
+            sequence: 1,
+            event_type: api_client::RunEventType::RunStarted,
+            version: 1,
+            occurred_at: "2026-08-15T00:00:00.000Z".to_string(),
+            visibility: api_client::EventVisibility::RoomAndOwner,
+            payload: serde_json::json!({}),
+        });
+        run.set_deliveries(vec![api_client::MatrixDelivery {
+            sequence: 1,
+            status: api_client::MatrixDeliveryStatus::Delivered,
+        }]);
+        app.push(Screen::Run(run));
+        app.set_status("tracking run");
+
+        let backend = TestBackend::new(60, 12);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+        let rendered: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol().to_string())
+            .collect();
+        // The status bar must render regardless of which screen is active (the
+        // Run screen render itself lands in Task 8.10).
+        assert!(
+            rendered.contains("tracking run"),
+            "status bar rendered: {rendered}"
+        );
     }
 }
