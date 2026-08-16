@@ -244,3 +244,90 @@ impl RunEvent {
         Some(event)
     }
 }
+
+    fn sample_event(sequence: u64, event_type: RunEventType) -> RunEvent {
+        RunEvent {
+            id: format!("ev_{sequence}"),
+            run_id: "r1".to_string(),
+            sequence,
+            event_type,
+            version: 1,
+            occurred_at: "2026-08-15T00:00:00.000Z".to_string(),
+            visibility: EventVisibility::RoomAndOwner,
+            payload: serde_json::json!({}),
+        }
+    }
+
+    #[test]
+    fn buffer_accepts_strictly_increasing_sequences() {
+        let mut buffer = RunEventBuffer::new();
+        assert!(buffer.accept(sample_event(1, RunEventType::RunQueued)));
+        assert!(buffer.accept(sample_event(2, RunEventType::RunStarted)));
+        assert_eq!(buffer.highest_sequence(), 2);
+        assert_eq!(buffer.events().len(), 2);
+        assert!(!buffer.is_terminal());
+    }
+
+    #[test]
+    fn buffer_rejects_duplicate_and_out_of_order_events() {
+        let mut buffer = RunEventBuffer::new();
+        assert!(buffer.accept(sample_event(2, RunEventType::RunStarted)));
+        assert!(!buffer.accept(sample_event(2, RunEventType::RunStarted)), "duplicate rejected");
+        assert!(!buffer.accept(sample_event(1, RunEventType::RunQueued)), "stale rejected");
+        assert_eq!(buffer.events().len(), 1);
+    }
+
+    #[test]
+    fn terminal_event_stops_further_acceptance() {
+        let mut buffer = RunEventBuffer::new();
+        assert!(buffer.accept(sample_event(1, RunEventType::RunStarted)));
+        assert!(buffer.accept(sample_event(2, RunEventType::RunCompleted)));
+        assert!(buffer.is_terminal());
+        assert!(!buffer.accept(sample_event(3, RunEventType::RunStarted)), "post-terminal ignored");
+        assert!(!buffer.accept(sample_event(3, RunEventType::RunCompleted)), "stale terminal ignored");
+        assert_eq!(buffer.events().len(), 2);
+    }
+
+/// Ordered buffer of accepted run events. Once a terminal event is accepted,
+/// later events are ignored — stale terminal events and duplicates never
+/// re-enter the timeline (same policy as the mobile's run store).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RunEventBuffer {
+    events: Vec<RunEvent>,
+    terminal: bool,
+}
+
+impl RunEventBuffer {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn events(&self) -> &[RunEvent] {
+        &self.events
+    }
+
+    pub fn is_terminal(&self) -> bool {
+        self.terminal
+    }
+
+    pub fn highest_sequence(&self) -> u64 {
+        self.events.last().map(|event| event.sequence).unwrap_or(0)
+    }
+
+    /// Try to accept an event. Returns true when accepted; false when the
+    /// buffer is already terminal or the sequence is not strictly greater
+    /// than the last accepted one.
+    pub fn accept(&mut self, event: RunEvent) -> bool {
+        if self.terminal {
+            return false;
+        }
+        if event.sequence <= self.highest_sequence() {
+            return false;
+        }
+        if is_terminal_event(&event) {
+            self.terminal = true;
+        }
+        self.events.push(event);
+        true
+    }
+}
