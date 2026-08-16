@@ -109,7 +109,7 @@ matrix-workspace-tui/
 - Create: `rust-toolchain.toml`
 - Modify: `.gitignore` (append two lines)
 
-- [ ] **Step 1: Write `Cargo.toml`**
+- [x] **Step 1: Write `Cargo.toml`**
 
 ```toml
 [workspace]
@@ -141,7 +141,7 @@ lto = true
 strip = true
 ```
 
-- [ ] **Step 2: Write `rust-toolchain.toml`**
+- [x] **Step 2: Write `rust-toolchain.toml`**
 
 ```toml
 [toolchain]
@@ -149,7 +149,7 @@ channel = "1.85.0"
 components = ["rustfmt", "clippy"]
 ```
 
-- [ ] **Step 3: Append to `.gitignore`**
+- [x] **Step 3: Append to `.gitignore`**
 
 ```gitignore
 
@@ -157,12 +157,12 @@ components = ["rustfmt", "clippy"]
 rust-toolchain.toml.old
 ```
 
-- [ ] **Step 4: Verify the workspace parses**
+- [x] **Step 4: Verify the workspace parses**
 
 Run: `cargo metadata --no-deps --format-version 1 >/dev/null`
 Expected: `error: failed to load manifest ... no such file or directory` for `crates/api-client/Cargo.toml` — this is fine, the members do not exist yet. Do **not** treat this as a blocker; proceed to Task 1.2 which creates the members.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Cargo.toml rust-toolchain.toml .gitignore
@@ -175,7 +175,7 @@ git commit -m "chore: add cargo workspace root and pinned toolchain"
 - Create: `crates/api-client/Cargo.toml`
 - Create: `crates/api-client/src/lib.rs`
 
-- [ ] **Step 1: Write `crates/api-client/Cargo.toml`**
+- [x] **Step 1: Write `crates/api-client/Cargo.toml`**
 
 ```toml
 [package]
@@ -197,18 +197,18 @@ uuid.workspace = true
 httpmock.workspace = true
 ```
 
-- [ ] **Step 2: Write `crates/api-client/src/lib.rs` (placeholder, expanded in later groups)**
+- [x] **Step 2: Write `crates/api-client/src/lib.rs` (placeholder, expanded in later groups)**
 
 ```rust
 //! Typed HTTP + SSE client for the Matrix Agent Workspace control plane.
 ```
 
-- [ ] **Step 3: Build the crate**
+- [x] **Step 3: Build the crate**
 
 Run: `cargo build -p api-client`
 Expected: `Finished \`dev\` profile [unoptimized + debuginfo] target(s) in ...` (first run compiles the dependency tree: tokio, reqwest, serde, httpmock — this takes a few minutes).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add crates/api-client/Cargo.toml crates/api-client/src/lib.rs
@@ -223,7 +223,7 @@ git commit -m "chore: scaffold api-client crate with base dependencies"
 - Create: `crates/tui/Cargo.toml`
 - Create: `crates/tui/src/main.rs`
 
-- [ ] **Step 1: Write `crates/state/Cargo.toml`**
+- [x] **Step 1: Write `crates/state/Cargo.toml`**
 
 ```toml
 [package]
@@ -244,13 +244,13 @@ sha2.workspace = true
 tempfile.workspace = true
 ```
 
-- [ ] **Step 2: Write `crates/state/src/lib.rs` (placeholder, expanded in later groups)**
+- [x] **Step 2: Write `crates/state/src/lib.rs` (placeholder, expanded in later groups)**
 
 ```rust
 //! Session persistence and the screen state machine for matrix-workspace-tui.
 ```
 
-- [ ] **Step 3: Write `crates/tui/Cargo.toml`**
+- [x] **Step 3: Write `crates/tui/Cargo.toml`**
 
 ```toml
 [package]
@@ -278,7 +278,7 @@ httpmock.workspace = true
 tempfile.workspace = true
 ```
 
-- [ ] **Step 4: Write `crates/tui/src/main.rs` (placeholder, expanded in Group 7)**
+- [x] **Step 4: Write `crates/tui/src/main.rs` (placeholder, expanded in Group 7)**
 
 ```rust
 fn main() {
@@ -287,12 +287,12 @@ fn main() {
 }
 ```
 
-- [ ] **Step 5: Build the whole workspace**
+- [x] **Step 5: Build the whole workspace**
 
 Run: `cargo build --workspace`
 Expected: `Finished \`dev\` profile [unoptimized + debuginfo] target(s) in ...`
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add crates/state crates/tui
