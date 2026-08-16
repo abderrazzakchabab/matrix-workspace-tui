@@ -55,7 +55,8 @@ mod tests {
 
         let mut client = ControlPlaneApi::new(server.base_url()).unwrap();
         client.set_cookie(Some("cp_session=abc123".to_string()));
-        let page: GithubPage<AuditRecordItem> = client.list_audit_records("ws_1", Some("p2")).await.unwrap();
+        let page: GithubPage<AuditRecordItem> =
+            client.list_audit_records("ws_1", Some("p2")).await.unwrap();
 
         assert_eq!(page.items.len(), 1);
         assert_eq!(page.items[0].id, "au_1");
@@ -71,13 +72,15 @@ mod tests {
         let mock = server
             .mock_async(|when, then| {
                 when.method(GET).path("/api/workspaces/ws_1/audit");
-                then.status(200).json_body(json!({ "requestId": "req_1", "items": [] }));
+                then.status(200)
+                    .json_body(json!({ "requestId": "req_1", "items": [] }));
             })
             .await;
 
         let mut client = ControlPlaneApi::new(server.base_url()).unwrap();
         client.set_cookie(Some("cp_session=abc123".to_string()));
-        let page: GithubPage<AuditRecordItem> = client.list_audit_records("ws_1", None).await.unwrap();
+        let page: GithubPage<AuditRecordItem> =
+            client.list_audit_records("ws_1", None).await.unwrap();
         assert!(page.items.is_empty());
         mock.assert_async().await;
     }

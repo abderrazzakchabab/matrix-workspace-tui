@@ -1,7 +1,6 @@
 use crate::contract::{RunRequest, RunResponse};
 use crate::error::ControlPlaneError;
 use crate::http::{urlencode, ControlPlaneApi};
-use serde_json::json;
 
 impl ControlPlaneApi {
     /// POST /api/workspaces/:workspaceId/runs — launch a run. The caller
@@ -26,7 +25,10 @@ impl ControlPlaneApi {
     }
 
     /// POST /api/runs/:runId/cancel — request cancellation.
-    pub async fn cancel_run(&self, run_id: &str) -> Result<crate::contract::CancellationResponse, ControlPlaneError> {
+    pub async fn cancel_run(
+        &self,
+        run_id: &str,
+    ) -> Result<crate::contract::CancellationResponse, ControlPlaneError> {
         let path = format!("/api/runs/{}/cancel", urlencode(run_id));
         self.authenticated_request(reqwest::Method::POST, &path, None)
             .await
@@ -45,8 +47,9 @@ impl ControlPlaneApi {
             matrix_deliveries: Vec<MatrixDelivery>,
         }
         let path = format!("/api/runs/{}", urlencode(run_id));
-        let body: RunDetailBody =
-            self.authenticated_request(reqwest::Method::GET, &path, None).await?;
+        let body: RunDetailBody = self
+            .authenticated_request(reqwest::Method::GET, &path, None)
+            .await?;
         Ok(crate::contract::RunMatrixDeliveriesResponse {
             run_id: body.run_id,
             deliveries: body.matrix_deliveries,
@@ -73,6 +76,7 @@ mod tests {
     use super::*;
     use crate::contract::{RunMode, RunStatus};
     use httpmock::prelude::*;
+    use serde_json::json;
 
     #[tokio::test]
     async fn launch_run_sends_request_plus_idempotency_key() {
@@ -160,7 +164,10 @@ mod tests {
         let response = client.cancel_run("r1").await.unwrap();
 
         assert_eq!(response.run_id, "r1");
-        assert_eq!(response.status, crate::contract::CancellationStatus::CancellationRequested);
+        assert_eq!(
+            response.status,
+            crate::contract::CancellationStatus::CancellationRequested
+        );
         mock.assert_async().await;
     }
 
@@ -230,7 +237,8 @@ mod tests {
             scope: crate::contract::GithubWriteScope::IssuesWrite,
             decision: crate::contract::ApprovalDecision::Approved,
             confirmation_text: "I confirm create issue on octo/repo (issues:write)".to_string(),
-            command_hash: "22a9632d51b690e300e3ef7fb397048392bc84a388c4ef68beb0d42202815fd8".to_string(),
+            command_hash: "22a9632d51b690e300e3ef7fb397048392bc84a388c4ef68beb0d42202815fd8"
+                .to_string(),
         };
         let result = client.create_run_approval("r1", &request).await.unwrap();
 

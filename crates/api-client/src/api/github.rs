@@ -108,7 +108,10 @@ impl ControlPlaneApi {
         use crate::contract::{GithubMutationResult, MutationStatus};
         let body = serde_json::to_value(request)
             .map_err(|e| ControlPlaneError::InvalidResponse(e.to_string()))?;
-        let path = format!("/api/workspaces/{}/github/mutations", urlencode(workspace_id));
+        let path = format!(
+            "/api/workspaces/{}/github/mutations",
+            urlencode(workspace_id)
+        );
         let (status, value) = self
             .authenticated_response(reqwest::Method::POST, &path, Some(&body))
             .await?;
@@ -173,7 +176,7 @@ mod tests {
 
         assert_eq!(page.items.len(), 1);
         assert_eq!(page.items[0].full_name, "octo/repo");
-        assert_eq!(page.items[0].private, false);
+        assert!(!page.items[0].private);
         assert_eq!(page.next_cursor.as_deref(), Some("p3"));
         mock.assert_async().await;
     }
@@ -281,7 +284,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(page.items[0].draft, true);
+        assert!(page.items[0].draft);
         assert_eq!(page.items[0].author, None);
         assert_eq!(page.items[0].head, "octo:docs");
         assert_eq!(page.items[0].base, "main");
@@ -309,7 +312,11 @@ mod tests {
         let mut client = ControlPlaneApi::new(server.base_url()).unwrap();
         client.set_cookie(Some("cp_session=abc123".to_string()));
         let result = client
-            .request_github_write_grant("ws_1", "octo/repo", crate::contract::GithubWriteScope::IssuesWrite)
+            .request_github_write_grant(
+                "ws_1",
+                "octo/repo",
+                crate::contract::GithubWriteScope::IssuesWrite,
+            )
             .await
             .unwrap();
 
@@ -349,7 +356,10 @@ mod tests {
             operation: crate::contract::GithubMutationOperation::CreateIssue,
             arguments: serde_json::json!({ "title": "Fix the bug" }),
         };
-        let result = client.enqueue_github_mutation("ws_1", &request).await.unwrap();
+        let result = client
+            .enqueue_github_mutation("ws_1", &request)
+            .await
+            .unwrap();
 
         assert_eq!(result.command_id, "cmd_1");
         assert_eq!(result.status, crate::contract::MutationStatus::Queued);
@@ -362,7 +372,8 @@ mod tests {
         let server = MockServer::start_async().await;
         let mock = server
             .mock_async(|when, then| {
-                when.method(POST).path("/api/workspaces/ws_1/github/mutations");
+                when.method(POST)
+                    .path("/api/workspaces/ws_1/github/mutations");
                 then.status(200).json_body(json!({
                     "commandId": "cmd_1",
                     "status": "completed"
@@ -380,11 +391,13 @@ mod tests {
             operation: crate::contract::GithubMutationOperation::CreateIssue,
             arguments: serde_json::json!({ "title": "Fix the bug" }),
         };
-        let result = client.enqueue_github_mutation("ws_1", &request).await.unwrap();
+        let result = client
+            .enqueue_github_mutation("ws_1", &request)
+            .await
+            .unwrap();
 
         assert_eq!(result.status, crate::contract::MutationStatus::Completed);
         assert!(result.replayed);
         mock.assert_async().await;
     }
 }
-

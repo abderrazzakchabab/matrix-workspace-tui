@@ -6,7 +6,10 @@ use serde_json::json;
 impl ControlPlaneApi {
     /// POST /api/workspaces — create a workspace with the same policy the
     /// mobile app uses.
-    pub async fn create_workspace(&self, name: &str) -> Result<WorkspaceSelection, ControlPlaneError> {
+    pub async fn create_workspace(
+        &self,
+        name: &str,
+    ) -> Result<WorkspaceSelection, ControlPlaneError> {
         let request = CreateWorkspaceRequest {
             name: name.trim().to_string(),
             policy: WorkspacePolicy {
@@ -51,7 +54,8 @@ mod tests {
 
         let mut client = ControlPlaneApi::new(server.base_url()).unwrap();
         client.set_cookie(Some("cp_session=abc123".to_string()));
-        let workspace: WorkspaceSelection = client.create_workspace("  my workspace  ").await.unwrap();
+        let workspace: WorkspaceSelection =
+            client.create_workspace("  my workspace  ").await.unwrap();
 
         assert_eq!(workspace.workspace_id, "ws_1");
         assert_eq!(workspace.name, "my workspace");

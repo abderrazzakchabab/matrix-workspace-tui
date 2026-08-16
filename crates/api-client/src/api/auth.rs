@@ -17,7 +17,9 @@ impl ControlPlaneApi {
             access_token: access_token.to_string(),
         };
         let body = json!(request);
-        let (response, cookie) = self.login_request("/api/auth/matrix/session", &body).await?;
+        let (response, cookie) = self
+            .login_request("/api/auth/matrix/session", &body)
+            .await?;
         match cookie {
             Some(cookie) => {
                 self.set_cookie(Some(cookie));
@@ -81,7 +83,10 @@ mod tests {
             .create_matrix_session("https://matrix.example.org", "tok_123")
             .await
             .unwrap_err();
-        assert!(matches!(error, crate::ControlPlaneError::SessionReferenceMissing));
+        assert!(matches!(
+            error,
+            crate::ControlPlaneError::SessionReferenceMissing
+        ));
         assert_eq!(client.cookie(), None);
     }
 

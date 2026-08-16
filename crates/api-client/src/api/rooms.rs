@@ -11,8 +11,9 @@ impl ControlPlaneApi {
         struct RoomsResponse {
             rooms: Vec<RoomSummary>,
         }
-        let body: RoomsResponse =
-            self.authenticated_request(reqwest::Method::GET, "/api/rooms", None).await?;
+        let body: RoomsResponse = self
+            .authenticated_request(reqwest::Method::GET, "/api/rooms", None)
+            .await?;
         Ok(body.rooms)
     }
 }
@@ -45,7 +46,9 @@ mod tests {
         let server = MockServer::start_async().await;
         let mock = server
             .mock_async(|when, then| {
-                when.method(GET).path("/api/rooms").header("cookie", "cp_session=abc123");
+                when.method(GET)
+                    .path("/api/rooms")
+                    .header("cookie", "cp_session=abc123");
                 then.status(200).json_body(json!({
                     "requestId": "req_1",
                     "rooms": [
