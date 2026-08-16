@@ -19,7 +19,7 @@ matrix-workspace-tui/
 ```
 
 - **api-client**: reqwest + tokio; every control-plane route the mobile app uses, with the same typed shapes (workspace, room, run, event, GitHub read pages, grant, approval, mutation, audit). The SSE replay stream (`GET /api/runs/:runId/events`) becomes an async `EventStream` that yields validated `RunEvent`s and resumes from the last known `sequence`.
-- **state**: `SessionStore` (control-plane session cookie in `~/.config/matrix-workspace-tui/`, mode 0600), the screen state machine (Login → Workspaces → Rooms → RunComposer/Run → GitHubWorkspace), and per-screen state structs. Pure logic, no I/O, unit-testable.
+- **state**: `SessionStore` (control-plane session cookie in `~/.config/matrix-workspace-tui/`, mode 0600), the screen state machine (Login → Workspaces → Rooms → RunComposer/Run → GitHubWorkspace), and per-screen state structs. The screen state machine and per-screen state structs are pure logic, no I/O, unit-testable.
 - **tui**: ratatui screens mirroring the mobile navigation: Login, Workspaces, RoomBinding, RunComposer, Run (live timeline + terminal result), GitHubWorkspace (read panels + mutation confirmation + audit). One keybinding model (hjkl/arrows, Enter, q).
 
 ## 2. Data flow

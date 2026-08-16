@@ -4051,7 +4051,7 @@ The session lives at `~/.config/matrix-workspace-tui/session.json` (via the `dir
 - Create: `crates/state/src/session_store.rs`
 - Modify: `crates/state/src/lib.rs`
 
-- [ ] **Step 1: Write the failing test (in `crates/state/src/session_store.rs`, `#[cfg(test)] mod tests`)**
+- [x] **Step 1: Write the failing test (in `crates/state/src/session_store.rs`, `#[cfg(test)] mod tests`)**
 
 ```rust
 #[cfg(test)]
@@ -4098,12 +4098,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run the test to see it fail**
+- [x] **Step 2: Run the test to see it fail**
 
 Run: `cargo test -p state save_then_load_round_trips_cookie_and_workspaces`
 Expected: compile error — `cannot find type \`SessionStore\``.
 
-- [ ] **Step 3: Write the implementation — full `crates/state/src/session_store.rs`**
+- [x] **Step 3: Write the implementation — full `crates/state/src/session_store.rs`**
 
 ```rust
 use api_client::WorkspaceSelection;
@@ -4214,7 +4214,7 @@ impl SessionStore {
 }
 ```
 
-- [ ] **Step 4: Wire the module into `crates/state/src/lib.rs`**
+- [x] **Step 4: Wire the module into `crates/state/src/lib.rs`**
 
 ```rust
 //! Session persistence and the screen state machine for matrix-workspace-tui.
@@ -4227,12 +4227,12 @@ pub use session_store::{SessionData, SessionStore, StateError};
 
 (`screens` is created in Group 6 — until then the build of `state` will fail on the missing module. To keep this task green, add only `pub mod session_store;` now; Task 6.1 adds the `screens` module line.)
 
-- [ ] **Step 5: Run the tests to see them pass**
+- [x] **Step 5: Run the tests to see them pass**
 
 Run: `cargo test -p state`
 Expected: `test result: ok. 2 passed; 0 failed; ...`
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add crates/state/src/session_store.rs crates/state/src/lib.rs
@@ -4244,7 +4244,7 @@ git commit -m "feat(state): session store save/load with workspaces"
 **Files:**
 - Modify: `crates/state/src/session_store.rs`
 
-- [ ] **Step 1: Write the failing tests (append to the `tests` module)**
+- [x] **Step 1: Write the failing tests (append to the `tests` module)**
 
 ```rust
 #[test]
@@ -4268,17 +4268,17 @@ fn save_sets_mode_0600() {
 }
 ```
 
-- [ ] **Step 2: Run the test to see it fail**
+- [x] **Step 2: Run the test to see it fail**
 
 Run: `cargo test -p state save_sets_mode_0600`
 Expected: this should pass once `save` runs (Task 5.1 already sets 0600). To see the red: temporarily remove the `fs::set_permissions` block from `save`, run, observe `test result: FAILED` with the mode assertion, then restore it.
 
-- [ ] **Step 3: Run the suite**
+- [x] **Step 3: Run the suite**
 
 Run: `cargo test -p state`
 Expected: `test result: ok. 4 passed; 0 failed; ...`
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add crates/state/src/session_store.rs
@@ -4290,7 +4290,7 @@ git commit -m "test(state): 0600 permissions and parent dir creation"
 **Files:**
 - Modify: `crates/state/src/session_store.rs`
 
-- [ ] **Step 1: Write the failing tests (append to the `tests` module)**
+- [x] **Step 1: Write the failing tests (append to the `tests` module)**
 
 ```rust
 #[test]
@@ -4319,17 +4319,17 @@ fn corrupted_file_surfaces_corrupted_error_then_clear_recovers() {
 }
 ```
 
-- [ ] **Step 2: Run the test to see it fail**
+- [x] **Step 2: Run the test to see it fail**
 
 Run: `cargo test -p state corrupted_file_surfaces_corrupted_error_then_clear_recovers`
 Expected: `test result: FAILED` — `clear` exists but the corrupted load path was not yet exercised; with Task 5.1 complete this should already pass. If green, continue.
 
-- [ ] **Step 3: Run the suite**
+- [x] **Step 3: Run the suite**
 
 Run: `cargo test -p state`
 Expected: `test result: ok. 6 passed; 0 failed; ...`
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add crates/state/src/session_store.rs
@@ -4341,7 +4341,7 @@ git commit -m "test(state): clear and corrupted file recovery"
 **Files:**
 - Modify: `crates/state/src/session_store.rs`
 
-- [ ] **Step 1: Write the failing test (append to the `tests` module)**
+- [x] **Step 1: Write the failing test (append to the `tests` module)**
 
 ```rust
 #[test]
@@ -4352,17 +4352,17 @@ fn default_path_points_into_config_dir() {
 }
 ```
 
-- [ ] **Step 2: Run the test to see it fail**
+- [x] **Step 2: Run the test to see it fail**
 
 Run: `cargo test -p state default_path_points_into_config_dir`
 Expected: FAIL with `cannot find value \`dirs\`` — the `dirs` crate is not yet referenced in the test (add `use` via `dirs::config_dir()` fully qualified it is — the failure instead is that `default_path` does not exist yet if Task 5.1 was skipped; with Task 5.1 done it passes). Run once; expect `test result: ok`.
 
-- [ ] **Step 3: Run the suite**
+- [x] **Step 3: Run the suite**
 
 Run: `cargo test -p state`
 Expected: `test result: ok. 7 passed; 0 failed; ...`
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add crates/state/src/session_store.rs
