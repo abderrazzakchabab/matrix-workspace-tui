@@ -302,3 +302,46 @@ pub enum ApprovalDecision {
     Approved,
     Denied,
 }
+
+/// GitHub mutation operations (mirrors GithubMutationOperation).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GithubMutationOperation {
+    CreateIssue,
+    UpdateIssue,
+    CommentIssue,
+    CreatePrComment,
+}
+
+/// Command lifecycle status (mirrors GithubMutationResult.status).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MutationStatus {
+    Queued,
+    Completed,
+    Failed,
+}
+
+/// POST /api/workspaces/:workspaceId/github/mutations response
+/// (mirrors GithubMutationResult; `replayed` is derived from the status code:
+/// 200 = idempotent replay, 202 = newly queued).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GithubMutationResult {
+    pub command_id: String,
+    pub status: MutationStatus,
+    pub replayed: bool,
+}
+
+/// POST /api/workspaces/:workspaceId/github/mutations request body.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnqueueMutationRequest {
+    pub idempotency_key: String,
+    pub approval_id: String,
+    pub repository: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
+    pub operation: GithubMutationOperation,
+    pub arguments: serde_json::Value,
+}

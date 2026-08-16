@@ -96,6 +96,36 @@ impl ControlPlaneApi {
         self.authenticated_request(reqwest::Method::POST, &path, Some(&body))
             .await
     }
+
+    /// POST /api/workspaces/:workspaceId/github/mutations — enqueue an
+    /// approval-gated, idempotent mutation. 202 = newly queued, 200 = replay
+    /// of the same idempotency key (mirrors the mobile's replayed flag).
+    pub async fn enqueue_github_mutation(
+        &self,
+        workspace_id: &str,
+        request: &crate::contract::EnqueueMutationRequest,
+    ) -> Result<crate::contract::GithubMutationResult, ControlPlaneError> {
+        use crate::contract::{GithubMutationResult, MutationStatus};
+        let body = serde_json::to_value(request)
+            .map_err(|e| ControlPlaneError::InvalidResponse(e.to_string()))?;
+        let path = format!("/api/workspaces/{}/github/mutations", urlencode(workspace_id));
+        let (status, value) = self
+            .authenticated_response(reqwest::Method::POST, &path, Some(&body))
+            .await?;
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct MutationBody {
+            command_id: String,
+            status: MutationStatus,
+        }
+        let parsed: MutationBody = serde_json::from_value(value)
+            .map_err(|e| ControlPlaneError::InvalidResponse(e.to_string()))?;
+        Ok(GithubMutationResult {
+            command_id: parsed.command_id,
+            status: parsed.status,
+            replayed: status == reqwest::StatusCode::OK,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -286,6 +316,74 @@ mod tests {
         assert_eq!(result.grant_id, "gr_1");
         assert_eq!(result.status, crate::contract::GrantStatus::Pending);
         assert_eq!(result.scope, crate::contract::GithubWriteScope::IssuesWrite);
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn enqueue_github_mutation_202_is_new_command() {
+        let server = MockServer::start_async().await;
+        let mock = server
+            .mock_async(|when, then| {
+                when.method(POST)
+                    .path("/api/workspaces/ws_1/github/mutations")
+                    .body_contains(r#""idempotencyKey":"key_1""#)
+                    .body_contains(r#""approvalId":"apr_1""#)
+                    .body_contains(r#""repository":"octo/repo""#)
+                    .body_contains(r#""runId":"r1""#)
+                    .body_contains(r#""operation":"create_issue""#)
+                    .body_contains(r#""title":"Fix the bug""#);
+                then.status(202).json_body(json!({
+                    "commandId": "cmd_1",
+                    "status": "queued"
+                }));
+            })
+            .await;
+
+        let mut client = ControlPlaneApi::new(server.base_url()).unwrap();
+        client.set_cookie(Some("cp_session=abc123".to_string()));
+        let request = crate::contract::EnqueueMutationRequest {
+            idempotency_key: "key_1".to_string(),
+            approval_id: "apr_1".to_string(),
+            repository: "octo/repo".to_string(),
+            run_id: Some("r1".to_string()),
+            operation: crate::contract::GithubMutationOperation::CreateIssue,
+            arguments: serde_json::json!({ "title": "Fix the bug" }),
+        };
+        let result = client.enqueue_github_mutation("ws_1", &request).await.unwrap();
+
+        assert_eq!(result.command_id, "cmd_1");
+        assert_eq!(result.status, crate::contract::MutationStatus::Queued);
+        assert!(!result.replayed);
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn enqueue_github_mutation_200_is_idempotent_replay() {
+        let server = MockServer::start_async().await;
+        let mock = server
+            .mock_async(|when, then| {
+                when.method(POST).path("/api/workspaces/ws_1/github/mutations");
+                then.status(200).json_body(json!({
+                    "commandId": "cmd_1",
+                    "status": "completed"
+                }));
+            })
+            .await;
+
+        let mut client = ControlPlaneApi::new(server.base_url()).unwrap();
+        client.set_cookie(Some("cp_session=abc123".to_string()));
+        let request = crate::contract::EnqueueMutationRequest {
+            idempotency_key: "key_1".to_string(),
+            approval_id: "apr_1".to_string(),
+            repository: "octo/repo".to_string(),
+            run_id: None,
+            operation: crate::contract::GithubMutationOperation::CreateIssue,
+            arguments: serde_json::json!({ "title": "Fix the bug" }),
+        };
+        let result = client.enqueue_github_mutation("ws_1", &request).await.unwrap();
+
+        assert_eq!(result.status, crate::contract::MutationStatus::Completed);
+        assert!(result.replayed);
         mock.assert_async().await;
     }
 }
