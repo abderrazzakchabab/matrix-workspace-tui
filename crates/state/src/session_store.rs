@@ -191,4 +191,11 @@ mod tests {
         store.clear().unwrap();
         assert_eq!(store.load().unwrap(), SessionData::default());
     }
+
+    #[test]
+    fn default_path_points_into_config_dir() {
+        let path = SessionStore::default_path().unwrap();
+        let expected = dirs::config_dir().unwrap().join("matrix-workspace-tui").join("session.json");
+        assert_eq!(path, expected);
+    }
 }
