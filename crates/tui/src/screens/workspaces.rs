@@ -22,6 +22,7 @@ pub fn handle_workspaces_key(state: &mut WorkspacesState, key: KeyEvent) -> Comm
         }
         KeyCode::Esc if state.creating => {
             state.creating = false;
+            state.name_input.clear();
             Command::None
         }
         KeyCode::Enter if state.creating => Command::CreateWorkspace,
@@ -164,6 +165,12 @@ mod tests {
             handle_workspaces_key(&mut state, key(KeyCode::Enter)),
             Command::CreateWorkspace
         );
+        assert_eq!(
+            handle_workspaces_key(&mut state, key(KeyCode::Esc)),
+            Command::None
+        );
+        assert!(!state.creating);
+        assert_eq!(state.name_input, "", "Esc clears the draft name");
     }
 
     #[test]

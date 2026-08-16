@@ -32,9 +32,14 @@ pub fn handle_github_workspace_key(state: &mut GitHubWorkspaceState, key: KeyEve
         }
         KeyCode::Esc if state.mutation_mode => {
             state.mutation_mode = false;
+            state.mutation_title.clear();
             Command::None
         }
         KeyCode::Enter if state.mutation_mode => {
+            if state.selected_repository().is_none() {
+                state.error = Some("Select a repository before composing a mutation".to_string());
+                return Command::None;
+            }
             let title = state.mutation_title.clone();
             match state.begin_mutation(title) {
                 Some(draft) => {
@@ -76,7 +81,16 @@ pub fn handle_github_workspace_key(state: &mut GitHubWorkspaceState, key: KeyEve
         KeyCode::Char('r') => Command::RefreshPanel,
         KeyCode::Char('g') => Command::RequestGrant,
         KeyCode::Char('m') => {
-            state.mutation_mode = !state.mutation_mode;
+            let has_grant = matches!(
+                state.grant,
+                Some(ref g) if g.status != api_client::GrantStatus::Revoked
+            );
+            if has_grant {
+                state.mutation_mode = !state.mutation_mode;
+            } else {
+                state.error =
+                    Some("Request a write grant (g) before composing a mutation".to_string());
+            }
             Command::None
         }
         _ => Command::None,
@@ -227,10 +241,15 @@ pub fn render_github_workspace(state: &GitHubWorkspaceState, frame: &mut Frame, 
                 "Issue title: {}   (Enter: review, Esc: cancel)",
                 state.mutation_title
             ))
-        } else {
+        } else if matches!(
+            state.grant,
+            Some(ref g) if g.status != api_client::GrantStatus::Revoked
+        ) {
             Paragraph::new(
                 "1-4: panels   r: refresh   g: request write grant   m: compose mutation   q: back",
             )
+        } else {
+            Paragraph::new("1-4: panels   r: refresh   g: request write grant   q: back")
         };
         frame.render_widget(hints, chunks[4]);
     }
@@ -253,7 +272,7 @@ pub fn render_github_workspace(state: &GitHubWorkspaceState, frame: &mut Frame, 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use api_client::GithubRepositorySummary;
+    use api_client::{GithubRepositorySummary, GithubWriteGrantResult, GithubWriteScope, GrantStatus};
     use crossterm::event::KeyModifiers;
 
     fn key(code: KeyCode) -> KeyEvent {
@@ -318,6 +337,21 @@ mod tests {
             handle_github_workspace_key(&mut state, key(KeyCode::Char('m'))),
             Command::None
         );
+        assert!(!state.mutation_mode, "m is gated on a write grant");
+        assert_eq!(
+            state.error.as_deref(),
+            Some("Request a write grant (g) before composing a mutation")
+        );
+        state.set_grant(GithubWriteGrantResult {
+            grant_id: "grant_1".to_string(),
+            status: GrantStatus::Pending,
+            repository: "octo/repo".to_string(),
+            scope: GithubWriteScope::IssuesWrite,
+        });
+        assert_eq!(
+            handle_github_workspace_key(&mut state, key(KeyCode::Char('m'))),
+            Command::None
+        );
         assert!(state.mutation_mode);
         assert_eq!(
             handle_github_workspace_key(&mut state, key(KeyCode::Char('t'))),
@@ -329,6 +363,39 @@ mod tests {
             Command::None
         );
         assert!(state.confirmation.is_some(), "confirmation draft shown");
+    }
+
+    #[test]
+    fn github_mutation_mode_esc_clears_title_and_no_repo_reports_distinct_error() {
+        let mut state = github();
+        state.set_grant(GithubWriteGrantResult {
+            grant_id: "grant_1".to_string(),
+            status: GrantStatus::Approved,
+            repository: "octo/repo".to_string(),
+            scope: GithubWriteScope::IssuesWrite,
+        });
+        handle_github_workspace_key(&mut state, key(KeyCode::Char('m')));
+        handle_github_workspace_key(&mut state, key(KeyCode::Char('x')));
+        assert_eq!(state.mutation_title, "x");
+        assert_eq!(
+            handle_github_workspace_key(&mut state, key(KeyCode::Esc)),
+            Command::None
+        );
+        assert!(!state.mutation_mode);
+        assert_eq!(state.mutation_title, "", "Esc clears the draft title");
+
+        state.set_repositories(vec![]);
+        handle_github_workspace_key(&mut state, key(KeyCode::Char('m')));
+        handle_github_workspace_key(&mut state, key(KeyCode::Char('t')));
+        assert_eq!(
+            handle_github_workspace_key(&mut state, key(KeyCode::Enter)),
+            Command::None
+        );
+        assert_eq!(
+            state.error.as_deref(),
+            Some("Select a repository before composing a mutation")
+        );
+        assert!(state.confirmation.is_none());
     }
 
     #[test]
