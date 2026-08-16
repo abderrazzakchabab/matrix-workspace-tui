@@ -1,11 +1,11 @@
 use crate::screens;
-use api_client::{ControlPlaneApi, ControlPlaneError, RunEvent, RunResponse, WorkspaceSelection};
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
+use api_client::{ControlPlaneApi, ControlPlaneError, RunEvent, RunResponse};
+use crossterm::event::{Event, KeyEvent, KeyEventKind};
 use ratatui::backend::Backend;
 use ratatui::layout::{Constraint, Layout};
 use ratatui::widgets::Paragraph;
 use ratatui::{Frame, Terminal};
-use state::screens::{RunState, Screen, ScreenId};
+use state::screens::{RunState, Screen};
 use state::session_store::{SessionData, SessionStore, StateError};
 use std::io;
 use std::time::Duration;
@@ -843,6 +843,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use api_client::WorkspaceSelection;
     use state::screens::{Screen, ScreenId};
     use state::session_store::SessionStore;
     use tempfile::tempdir;
@@ -862,8 +863,10 @@ mod tests {
     fn app_starts_on_workspaces_with_stored_session() {
         let dir = tempdir().unwrap();
         let store = SessionStore::at_path(dir.path().join("session.json"));
-        let mut data = SessionData::default();
-        data.cookie = Some("cp_session=abc123".to_string());
+        let mut data = SessionData {
+            cookie: Some("cp_session=abc123".to_string()),
+            ..Default::default()
+        };
         data.workspaces.push(WorkspaceSelection {
             workspace_id: "ws_1".to_string(),
             name: "My workspace".to_string(),
@@ -922,8 +925,10 @@ mod tests {
     fn workspaces_key_q_quits_at_root() {
         let dir = tempdir().unwrap();
         let store = SessionStore::at_path(dir.path().join("session.json"));
-        let mut data = SessionData::default();
-        data.cookie = Some("cp_session=abc123".to_string());
+        let data = SessionData {
+            cookie: Some("cp_session=abc123".to_string()),
+            ..Default::default()
+        };
         store.save(&data).unwrap();
         let mut app = App::new(
             "http://localhost:3000".to_string(),
@@ -1058,8 +1063,10 @@ mod tests {
 
         let dir = tempdir().unwrap();
         let store = SessionStore::at_path(dir.path().join("session.json"));
-        let mut data = SessionData::default();
-        data.cookie = Some("cp_session=abc123".to_string());
+        let data = SessionData {
+            cookie: Some("cp_session=abc123".to_string()),
+            ..Default::default()
+        };
         store.save(&data).unwrap();
 
         let mut app = App::new(
@@ -1098,8 +1105,10 @@ mod tests {
 
         let dir = tempdir().unwrap();
         let store = SessionStore::at_path(dir.path().join("session.json"));
-        let mut data = SessionData::default();
-        data.cookie = Some("cp_session=stale".to_string());
+        let data = SessionData {
+            cookie: Some("cp_session=stale".to_string()),
+            ..Default::default()
+        };
         store.save(&data).unwrap();
 
         let mut app = App::new(
@@ -1158,8 +1167,10 @@ mod tests {
 
         let dir = tempdir().unwrap();
         let store = SessionStore::at_path(dir.path().join("session.json"));
-        let mut data = SessionData::default();
-        data.cookie = Some("cp_session=abc123".to_string());
+        let data = SessionData {
+            cookie: Some("cp_session=abc123".to_string()),
+            ..Default::default()
+        };
         store.save(&data).unwrap();
 
         let mut app = App::new(
@@ -1205,8 +1216,10 @@ mod tests {
 
         let dir = tempdir().unwrap();
         let store = SessionStore::at_path(dir.path().join("session.json"));
-        let mut data = SessionData::default();
-        data.cookie = Some("cp_session=abc123".to_string());
+        let data = SessionData {
+            cookie: Some("cp_session=abc123".to_string()),
+            ..Default::default()
+        };
         store.save(&data).unwrap();
 
         let mut app = App::new(
@@ -1252,8 +1265,10 @@ mod tests {
 
         let dir = tempdir().unwrap();
         let store = SessionStore::at_path(dir.path().join("session.json"));
-        let mut data = SessionData::default();
-        data.cookie = Some("cp_session=abc123".to_string());
+        let data = SessionData {
+            cookie: Some("cp_session=abc123".to_string()),
+            ..Default::default()
+        };
         store.save(&data).unwrap();
 
         let mut app = App::new(
@@ -1309,8 +1324,10 @@ mod tests {
 
         let dir = tempdir().unwrap();
         let store = SessionStore::at_path(dir.path().join("session.json"));
-        let mut data = SessionData::default();
-        data.cookie = Some("cp_session=abc123".to_string());
+        let data = SessionData {
+            cookie: Some("cp_session=abc123".to_string()),
+            ..Default::default()
+        };
         store.save(&data).unwrap();
 
         let mut app = App::new(
