@@ -189,3 +189,35 @@ pub struct GithubRepositorySummary {
     pub html_url: String,
     pub archived: bool,
 }
+
+/// Mirrors GithubIssueSummary.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GithubIssueSummary {
+    pub id: u64,
+    pub number: u64,
+    pub title: String,
+    pub state: String,
+    pub author: Option<String>,
+    pub labels: Vec<String>,
+    pub html_url: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Mirrors GithubPullRequestSummary.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GithubPullRequestSummary {
+    pub id: u64,
+    pub number: u64,
+    pub title: String,
+    pub state: String,
+    pub draft: bool,
+    pub author: Option<String>,
+    pub head: String,
+    pub base: String,
+    pub html_url: String,
+    pub created_at: String,
+    pub updated_at: String,
+}

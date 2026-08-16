@@ -1,4 +1,4 @@
-use crate::contract::{GithubPage, GithubRepositorySummary};
+use crate::contract::{GithubPage, GithubPullRequestSummary, GithubRepositorySummary};
 use crate::error::ControlPlaneError;
 use crate::http::{urlencode, ControlPlaneApi};
 
@@ -36,6 +36,44 @@ impl ControlPlaneApi {
             "/api/github/repositories",
             cursor,
         );
+        self.authenticated_request(reqwest::Method::GET, &path, None)
+            .await
+    }
+
+    /// GET /api/github/repositories/:owner/:repo/issues
+    pub async fn list_github_issues(
+        &self,
+        workspace_id: &str,
+        installation_id: &str,
+        owner: &str,
+        repo: &str,
+        cursor: Option<&str>,
+    ) -> Result<GithubPage<crate::contract::GithubIssueSummary>, ControlPlaneError> {
+        let suffix = format!(
+            "/api/github/repositories/{}/{}/issues",
+            urlencode(owner),
+            urlencode(repo)
+        );
+        let path = self.github_read_path(workspace_id, installation_id, &suffix, cursor);
+        self.authenticated_request(reqwest::Method::GET, &path, None)
+            .await
+    }
+
+    /// GET /api/github/repositories/:owner/:repo/pulls
+    pub async fn list_github_pull_requests(
+        &self,
+        workspace_id: &str,
+        installation_id: &str,
+        owner: &str,
+        repo: &str,
+        cursor: Option<&str>,
+    ) -> Result<GithubPage<GithubPullRequestSummary>, ControlPlaneError> {
+        let suffix = format!(
+            "/api/github/repositories/{}/{}/pulls",
+            urlencode(owner),
+            urlencode(repo)
+        );
+        let path = self.github_read_path(workspace_id, installation_id, &suffix, cursor);
         self.authenticated_request(reqwest::Method::GET, &path, None)
             .await
     }
@@ -112,6 +150,92 @@ mod tests {
             .unwrap();
         assert!(page.items.is_empty());
         assert_eq!(page.next_cursor, None);
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn list_github_issues_uses_owner_repo_path_and_cursor() {
+        let server = MockServer::start_async().await;
+        let mock = server
+            .mock_async(|when, then| {
+                when.method(GET)
+                    .path("/api/github/repositories/octo/repo/issues")
+                    .query_param("workspaceId", "ws_1")
+                    .query_param("installationId", "inst_9")
+                    .query_param("cursor", "p2");
+                then.status(200).json_body(json!({
+                    "items": [
+                        {
+                            "id": 11,
+                            "number": 42,
+                            "title": "Fix the bug",
+                            "state": "open",
+                            "author": "octo",
+                            "labels": ["bug"],
+                            "htmlUrl": "https://github.com/octo/repo/issues/42",
+                            "createdAt": "2026-08-01T00:00:00.000Z",
+                            "updatedAt": "2026-08-02T00:00:00.000Z"
+                        }
+                    ]
+                }));
+            })
+            .await;
+
+        let mut client = ControlPlaneApi::new(server.base_url()).unwrap();
+        client.set_cookie(Some("cp_session=abc123".to_string()));
+        let page: GithubPage<crate::contract::GithubIssueSummary> = client
+            .list_github_issues("ws_1", "inst_9", "octo", "repo", Some("p2"))
+            .await
+            .unwrap();
+
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.items[0].number, 42);
+        assert_eq!(page.items[0].title, "Fix the bug");
+        assert_eq!(page.items[0].labels, vec!["bug"]);
+        assert_eq!(page.next_cursor, None);
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn list_github_pull_requests_parses_draft_and_head_base() {
+        let server = MockServer::start_async().await;
+        let mock = server
+            .mock_async(|when, then| {
+                when.method(GET)
+                    .path("/api/github/repositories/octo/repo/pulls")
+                    .query_param("workspaceId", "ws_1")
+                    .query_param("installationId", "inst_9");
+                then.status(200).json_body(json!({
+                    "items": [
+                        {
+                            "id": 22,
+                            "number": 7,
+                            "title": "Add docs",
+                            "state": "open",
+                            "draft": true,
+                            "author": null,
+                            "head": "octo:docs",
+                            "base": "main",
+                            "htmlUrl": "https://github.com/octo/repo/pull/7",
+                            "createdAt": "2026-08-01T00:00:00.000Z",
+                            "updatedAt": "2026-08-02T00:00:00.000Z"
+                        }
+                    ]
+                }));
+            })
+            .await;
+
+        let mut client = ControlPlaneApi::new(server.base_url()).unwrap();
+        client.set_cookie(Some("cp_session=abc123".to_string()));
+        let page: GithubPage<crate::contract::GithubPullRequestSummary> = client
+            .list_github_pull_requests("ws_1", "inst_9", "octo", "repo", None)
+            .await
+            .unwrap();
+
+        assert_eq!(page.items[0].draft, true);
+        assert_eq!(page.items[0].author, None);
+        assert_eq!(page.items[0].head, "octo:docs");
+        assert_eq!(page.items[0].base, "main");
         mock.assert_async().await;
     }
 }
