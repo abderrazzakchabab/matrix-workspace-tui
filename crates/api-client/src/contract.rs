@@ -345,3 +345,19 @@ pub struct EnqueueMutationRequest {
     pub operation: GithubMutationOperation,
     pub arguments: serde_json::Value,
 }
+
+/// Append-only audit trail item (mirrors AuditRecordItem).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuditRecordItem {
+    pub id: String,
+    pub actor_matrix_id: Option<String>,
+    pub scope: Option<String>,
+    pub repository: Option<String>,
+    pub operation: Option<String>,
+    pub approval_id: Option<String>,
+    pub command_id: Option<String>,
+    pub outcome: String,
+    pub details: serde_json::Value,
+    pub created_at: String,
+}
