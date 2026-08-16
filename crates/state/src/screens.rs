@@ -608,6 +608,42 @@ pub fn command_hash(
     format!("{:x}", hasher.finalize())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScreenId {
+    Login,
+    Workspaces,
+    Rooms,
+    RoomBinding,
+    RunComposer,
+    Run,
+    GitHubWorkspace,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Screen {
+    Login(LoginState),
+    Workspaces(WorkspacesState),
+    Rooms(RoomsState),
+    RoomBinding(RoomBindingState),
+    RunComposer(RunComposerState),
+    Run(RunState),
+    GitHubWorkspace(GitHubWorkspaceState),
+}
+
+impl Screen {
+    pub fn id(&self) -> ScreenId {
+        match self {
+            Screen::Login(_) => ScreenId::Login,
+            Screen::Workspaces(_) => ScreenId::Workspaces,
+            Screen::Rooms(_) => ScreenId::Rooms,
+            Screen::RoomBinding(_) => ScreenId::RoomBinding,
+            Screen::RunComposer(_) => ScreenId::RunComposer,
+            Screen::Run(_) => ScreenId::Run,
+            Screen::GitHubWorkspace(_) => ScreenId::GitHubWorkspace,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -947,5 +983,26 @@ mod tests {
             &serde_json::json!({ "body": "Details", "title": "Test issue" }),
         );
         assert_eq!(hash_with_body, "8c8a0ab437a3a0c5760a8179ab81bcc9b84b31878cf2dede2888c63fa8b4d2b9");
+    }
+
+    #[test]
+    fn every_screen_reports_its_id() {
+        assert_eq!(Screen::Login(LoginState::default()).id(), ScreenId::Login);
+        assert_eq!(Screen::Workspaces(WorkspacesState::new()).id(), ScreenId::Workspaces);
+        assert_eq!(Screen::Rooms(RoomsState::new("ws_1".to_string())).id(), ScreenId::Rooms);
+        assert_eq!(
+            Screen::RoomBinding(RoomBindingState::new(
+                room("!a:example.org", None),
+                "ws_1".to_string(),
+            ))
+            .id(),
+            ScreenId::RoomBinding
+        );
+        assert_eq!(Screen::RunComposer(RunComposerState::new("!a:example.org".to_string(), "ws_1".to_string())).id(), ScreenId::RunComposer);
+        assert_eq!(Screen::Run(RunState::new("r1".to_string(), "ws_1".to_string())).id(), ScreenId::Run);
+        assert_eq!(
+            Screen::GitHubWorkspace(GitHubWorkspaceState::new("ws_1".to_string(), "r1".to_string(), None)).id(),
+            ScreenId::GitHubWorkspace
+        );
     }
 }
