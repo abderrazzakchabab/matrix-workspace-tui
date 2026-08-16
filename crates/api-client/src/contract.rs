@@ -126,3 +126,42 @@ pub struct RunResponse {
     pub room_id: Option<String>,
     pub next_sequence: u64,
 }
+
+/// POST /api/runs/:runId/cancel response (mirrors CancellationResponse).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CancellationResponse {
+    pub run_id: String,
+    pub status: CancellationStatus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CancellationStatus {
+    CancellationRequested,
+}
+
+/// Authoritative Matrix delivery status from GET /api/runs/:runId
+/// (mirrors MatrixDeliveryStatus). Never inferred from the event stream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MatrixDeliveryStatus {
+    Pending,
+    Delivered,
+    Failed,
+    Dead,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixDelivery {
+    pub sequence: u64,
+    pub status: MatrixDeliveryStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunMatrixDeliveriesResponse {
+    pub run_id: String,
+    pub deliveries: Vec<MatrixDelivery>,
+}

@@ -24,6 +24,34 @@ impl ControlPlaneApi {
         self.authenticated_request(reqwest::Method::POST, &path, Some(&body))
             .await
     }
+
+    /// POST /api/runs/:runId/cancel — request cancellation.
+    pub async fn cancel_run(&self, run_id: &str) -> Result<crate::contract::CancellationResponse, ControlPlaneError> {
+        let path = format!("/api/runs/{}/cancel", urlencode(run_id));
+        self.authenticated_request(reqwest::Method::POST, &path, None)
+            .await
+    }
+
+    /// GET /api/runs/:runId — read the authoritative Matrix delivery statuses.
+    pub async fn get_run_matrix_deliveries(
+        &self,
+        run_id: &str,
+    ) -> Result<crate::contract::RunMatrixDeliveriesResponse, ControlPlaneError> {
+        use crate::contract::MatrixDelivery;
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct RunDetailBody {
+            run_id: String,
+            matrix_deliveries: Vec<MatrixDelivery>,
+        }
+        let path = format!("/api/runs/{}", urlencode(run_id));
+        let body: RunDetailBody =
+            self.authenticated_request(reqwest::Method::GET, &path, None).await?;
+        Ok(crate::contract::RunMatrixDeliveriesResponse {
+            run_id: body.run_id,
+            deliveries: body.matrix_deliveries,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -96,6 +124,67 @@ mod tests {
         let run: RunResponse = client.launch_run("ws_1", &request, "key_43").await.unwrap();
         assert_eq!(run.room_id, None);
         assert_eq!(run.status, RunStatus::Queued);
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn cancel_run_posts_and_returns_cancellation_requested() {
+        let server = MockServer::start_async().await;
+        let mock = server
+            .mock_async(|when, then| {
+                when.method(POST).path("/api/runs/r1/cancel");
+                then.status(202).json_body(json!({
+                    "requestId": "req_1",
+                    "runId": "r1",
+                    "status": "cancellation_requested"
+                }));
+            })
+            .await;
+
+        let mut client = ControlPlaneApi::new(server.base_url()).unwrap();
+        client.set_cookie(Some("cp_session=abc123".to_string()));
+        let response = client.cancel_run("r1").await.unwrap();
+
+        assert_eq!(response.run_id, "r1");
+        assert_eq!(response.status, crate::contract::CancellationStatus::CancellationRequested);
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn get_run_matrix_deliveries_reads_authoritative_status() {
+        let server = MockServer::start_async().await;
+        let mock = server
+            .mock_async(|when, then| {
+                when.method(GET).path("/api/runs/r1");
+                then.status(200).json_body(json!({
+                    "requestId": "req_1",
+                    "runId": "r1",
+                    "status": "running",
+                    "mode": "parallel",
+                    "workspaceId": "ws_1",
+                    "roomId": null,
+                    "specialists": [],
+                    "lastSequence": 5,
+                    "matrixDeliveries": [
+                        { "sequence": 1, "status": "delivered" },
+                        { "sequence": 2, "status": "pending" }
+                    ],
+                    "cancelRequestedAt": null
+                }));
+            })
+            .await;
+
+        let mut client = ControlPlaneApi::new(server.base_url()).unwrap();
+        client.set_cookie(Some("cp_session=abc123".to_string()));
+        let deliveries = client.get_run_matrix_deliveries("r1").await.unwrap();
+
+        assert_eq!(deliveries.run_id, "r1");
+        assert_eq!(deliveries.deliveries.len(), 2);
+        assert_eq!(deliveries.deliveries[0].sequence, 1);
+        assert_eq!(
+            deliveries.deliveries[0].status,
+            crate::contract::MatrixDeliveryStatus::Delivered
+        );
         mock.assert_async().await;
     }
 }
