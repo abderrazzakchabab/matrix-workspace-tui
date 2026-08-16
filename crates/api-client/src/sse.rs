@@ -1,5 +1,5 @@
 use crate::contract::{EventVisibility, RunEvent, RunEventType};
-use crate::error::ControlPlaneError;
+use crate::error::{ApiErrorBody, ControlPlaneError};
 use crate::http::urlencode;
 use futures_util::StreamExt;
 use reqwest::StatusCode;
@@ -235,7 +235,22 @@ impl EventStream {
         Ok(())
     }
 
+    fn flush(&mut self) {
+        if self.terminal || self.buffer.is_empty() {
+            return;
+        }
+        let frame_text = std::mem::take(&mut self.buffer);
+        if let Some(frame) = parse_sse_frame(&frame_text) {
+            if let Some(event) = RunEvent::from_sse_frame(&frame, &self.run_id) {
+                if event.sequence > self.after {
+                    self.pending.push_back(event);
+                }
+            }
+        }
+    }
+
     async fn open_and_read(&mut self) -> Result<(), ControlPlaneError> {
+        self.buffer.clear();
         let url = format!(
             "{}/api/runs/{}/events?after={}",
             self.base_url,
@@ -264,6 +279,20 @@ impl EventStream {
             self.schedule_reconnect();
             return Ok(());
         }
+        if !response.status().is_success() {
+            let status = response.status();
+            let bytes = response.bytes().await.map_err(ControlPlaneError::Http)?;
+            let api_error: Option<ApiErrorBody> = serde_json::from_slice(&bytes).ok();
+            let (code, message) = match api_error {
+                Some(body) => (body.error.code, body.error.message.unwrap_or_default()),
+                None => (None, format!("Control plane request failed ({status})")),
+            };
+            return Err(ControlPlaneError::Api {
+                status: status.as_u16(),
+                code,
+                message,
+            });
+        }
         let mut stream = response.bytes_stream();
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.map_err(ControlPlaneError::Http)?;
@@ -275,6 +304,7 @@ impl EventStream {
         if self.terminal {
             return Ok(());
         }
+        self.flush();
         self.schedule_reconnect();
         Ok(())
     }
@@ -666,5 +696,144 @@ mod tests {
         let error = stream.next().await.expect("yields an error").unwrap_err();
         assert_eq!(error.status(), Some(404));
         assert_eq!(error.code(), Some("RUN_NOT_FOUND"));
+    }
+
+    #[tokio::test]
+    async fn stream_flushes_trailing_frame_without_blank_line() {
+        let server = MockServer::start_async().await;
+        let mock = server
+            .mock_async(|when, then| {
+                when.method(GET).path("/api/runs/r1/events");
+                then.status(200)
+                    .header("content-type", "text/event-stream")
+                    .body(event_frame(1, "run.queued").trim_end_matches("\n\n"));
+            })
+            .await;
+
+        let mut stream = EventStream::new(&server.base_url(), "cp_session=abc123", "r1", 0)
+            .with_reconnect_delays(10, 50);
+        let mut sequences = Vec::new();
+        for _ in 0..8 {
+            match stream.next().await {
+                Some(Ok(StreamEvent::Run(event))) => {
+                    sequences.push(event.sequence);
+                    if stream.is_terminal() {
+                        break;
+                    }
+                }
+                Some(Ok(StreamEvent::Reconnecting { .. })) => break,
+                Some(Err(error)) => panic!("unexpected error: {error}"),
+                None => break,
+            }
+        }
+        assert_eq!(sequences, vec![1], "trailing frame without blank line must be delivered");
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn stream_resets_stale_buffer_between_connections() {
+        let server = MockServer::start_async().await;
+        let first = server
+            .mock_async(|when, then| {
+                when.method(GET)
+                    .path("/api/runs/r1/events")
+                    .query_param("after", "0");
+                then.status(200)
+                    .header("content-type", "text/event-stream")
+                    .body(
+                        event_frame(1, "run.queued")
+                            + &event_frame(2, "specialist.started")
+                            + "id: 3\nevent: run.completed\ndata: {\"id\":\"ev_3\"",
+                    );
+            })
+            .await;
+        let second = server
+            .mock_async(|when, then| {
+                when.method(GET)
+                    .path("/api/runs/r1/events")
+                    .query_param("after", "2");
+                then.status(200)
+                    .header("content-type", "text/event-stream")
+                    .body(event_frame(3, "run.completed"));
+            })
+            .await;
+
+        let mut stream = EventStream::new(&server.base_url(), "cp_session=abc123", "r1", 0)
+            .with_reconnect_delays(10, 50);
+        let mut sequences = Vec::new();
+        let mut reconnect_afters = Vec::new();
+        for _ in 0..12 {
+            match stream.next().await {
+                Some(Ok(StreamEvent::Run(event))) => {
+                    sequences.push(event.sequence);
+                    if stream.is_terminal() {
+                        break;
+                    }
+                }
+                Some(Ok(StreamEvent::Reconnecting { after, .. })) => {
+                    reconnect_afters.push(after);
+                }
+                Some(Err(error)) => panic!("unexpected error: {error}"),
+                None => break,
+            }
+        }
+        assert_eq!(
+            sequences,
+            vec![1, 2, 3],
+            "retransmitted frame must not be corrupted by a stale partial buffer"
+        );
+        assert_eq!(reconnect_afters, vec![2]);
+        first.assert_async().await;
+        second.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn stream_stops_on_unhandled_client_error_status() {
+        let server = MockServer::start_async().await;
+        server
+            .mock_async(|when, then| {
+                when.method(GET).path("/api/runs/r1/events");
+                then.status(403);
+            })
+            .await;
+
+        let mut stream = EventStream::new(&server.base_url(), "cp_session=abc123", "r1", 0)
+            .with_reconnect_delays(10, 50);
+        let mut statuses = Vec::new();
+        for _ in 0..4 {
+            match stream.next().await {
+                Some(Ok(StreamEvent::Run(_))) => panic!("no events expected"),
+                Some(Ok(StreamEvent::Reconnecting { .. })) => {
+                    panic!("fatal client status must not trigger a reconnect")
+                }
+                Some(Err(error)) => statuses.push(error.status()),
+                None => break,
+            }
+        }
+        assert_eq!(
+            statuses,
+            vec![Some(403); 4],
+            "fatal status surfaces as an error, never a reconnect"
+        );
+    }
+
+    #[tokio::test]
+    async fn stream_reconnects_on_too_many_requests() {
+        let server = MockServer::start_async().await;
+        let mock = server
+            .mock_async(|when, then| {
+                when.method(GET).path("/api/runs/r1/events");
+                then.status(429);
+            })
+            .await;
+
+        let mut stream = EventStream::new(&server.base_url(), "cp_session=abc123", "r1", 0)
+            .with_reconnect_delays(10, 50);
+        let item = stream.next().await.expect("429 must schedule a reconnect");
+        assert!(
+            matches!(item, Ok(StreamEvent::Reconnecting { attempt: 1, after: 0 })),
+            "expected a reconnect notification, got {item:?}"
+        );
+        mock.assert_async().await;
     }
 }
