@@ -50,12 +50,11 @@ impl SessionStore {
     pub fn load(&self) -> Result<SessionData, StateError> {
         match fs::read(&self.path) {
             Ok(bytes) => {
-                let data: SessionData = serde_json::from_slice(&bytes).map_err(|source| {
-                    StateError::Corrupted {
+                let data: SessionData =
+                    serde_json::from_slice(&bytes).map_err(|source| StateError::Corrupted {
                         path: self.path.display().to_string(),
                         source,
-                    }
-                })?;
+                    })?;
                 Ok(data)
             }
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(SessionData::default()),
@@ -163,8 +162,15 @@ mod tests {
         let dir = tempdir().unwrap();
         let store = SessionStore::at_path(dir.path().join("session.json"));
         store.save(&SessionData::default()).unwrap();
-        let mode = fs::metadata(dir.path().join("session.json")).unwrap().permissions().mode();
-        assert_eq!(mode & 0o777, 0o600, "session file must not be world-readable");
+        let mode = fs::metadata(dir.path().join("session.json"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(
+            mode & 0o777,
+            0o600,
+            "session file must not be world-readable"
+        );
     }
 
     #[test]
@@ -195,7 +201,10 @@ mod tests {
     #[test]
     fn default_path_points_into_config_dir() {
         let path = SessionStore::default_path().unwrap();
-        let expected = dirs::config_dir().unwrap().join("matrix-workspace-tui").join("session.json");
+        let expected = dirs::config_dir()
+            .unwrap()
+            .join("matrix-workspace-tui")
+            .join("session.json");
         assert_eq!(path, expected);
     }
 }
