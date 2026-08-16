@@ -137,6 +137,19 @@ impl App {
         self.status = Some(message.into());
     }
 
+    /// Route a key event to the active screen's handler.
+    pub fn handle_key(&mut self, key: KeyEvent) -> Command {
+        match self.current_mut() {
+            Screen::Login(state) => screens::login::handle_login_key(state, key),
+            Screen::Workspaces(state) => screens::workspaces::handle_workspaces_key(state, key),
+            Screen::Rooms(state) => screens::rooms::handle_rooms_key(state, key),
+            Screen::RoomBinding(state) => screens::rooms::handle_room_binding_key(state, key),
+            Screen::RunComposer(state) => screens::run_composer::handle_run_composer_key(state, key),
+            Screen::Run(state) => screens::run::handle_run_key(state, key),
+            Screen::GitHubWorkspace(state) => screens::github::handle_github_workspace_key(state, key),
+        }
+    }
+
     /// 401 anywhere: clear the stored session and return to Login.
     pub fn expire_session(&mut self) {
         let _ = self.store.clear();
@@ -192,5 +205,30 @@ mod tests {
         let popped = app.pop();
         assert!(matches!(popped, Some(Screen::Rooms(_))));
         assert_eq!(app.current().id(), ScreenId::Login);
+    }
+
+    use crossterm::event::{KeyCode, KeyEvent};
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, crossterm::event::KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn login_key_q_quits_and_other_keys_are_noops() {
+        let dir = tempdir().unwrap();
+        let mut app = App::new("http://localhost:3000".to_string(), SessionStore::at_path(dir.path().join("session.json")));
+        assert_eq!(app.handle_key(key(KeyCode::Char('q'))), Command::Quit);
+        assert_eq!(app.handle_key(key(KeyCode::Char('x'))), Command::None);
+    }
+
+    #[test]
+    fn workspaces_key_q_quits_at_root() {
+        let dir = tempdir().unwrap();
+        let store = SessionStore::at_path(dir.path().join("session.json"));
+        let mut data = SessionData::default();
+        data.cookie = Some("cp_session=abc123".to_string());
+        store.save(&data).unwrap();
+        let mut app = App::new("http://localhost:3000".to_string(), SessionStore::at_path(dir.path().join("session.json")));
+        assert_eq!(app.handle_key(key(KeyCode::Char('q'))), Command::Quit);
     }
 }

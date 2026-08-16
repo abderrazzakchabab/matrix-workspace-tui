@@ -1,2 +1,6 @@
-// Screen modules are stubbed in Task 7.2 and replaced with full
-// implementations in Group 8.
+pub mod github;
+pub mod login;
+pub mod rooms;
+pub mod run;
+pub mod run_composer;
+pub mod workspaces;
