@@ -334,6 +334,9 @@ impl EventStream {
             }
             match self.open_and_read().await {
                 Ok(()) => {}
+                Err(ControlPlaneError::Http(_)) => {
+                    self.schedule_reconnect();
+                }
                 Err(error) => {
                     self.fatal = true;
                     return Some(Err(error));
@@ -823,6 +826,24 @@ mod tests {
         assert!(
             stream.next().await.is_none(),
             "stream must end after the fatal error, not re-issue the request"
+        );
+    }
+
+    #[tokio::test]
+    async fn stream_reconnects_on_transport_error() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        drop(listener);
+
+        let mut stream = EventStream::new(&format!("http://{addr}"), "cp_session=abc123", "r1", 0)
+            .with_reconnect_delays(10, 50);
+        let item = stream
+            .next()
+            .await
+            .expect("a transport failure must not end the stream");
+        assert!(
+            matches!(item, Ok(StreamEvent::Reconnecting { attempt: 1, after: 0 })),
+            "expected a reconnect notification, got {item:?}"
         );
     }
 
