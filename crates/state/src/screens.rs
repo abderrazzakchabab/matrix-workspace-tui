@@ -368,6 +368,182 @@ impl RunState {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GithubPanel {
+    Repositories,
+    Issues,
+    PullRequests,
+    Audit,
+}
+
+/// The mutation flow status mirror (mobile MutationConfirmationStatus).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MutationFlowStatus {
+    Idle,
+    Submitting,
+    Submitted,
+    Succeeded,
+    Denied,
+    Expired,
+    Failed,
+    Duplicate,
+}
+
+/// Everything shown on the explicit confirmation screen before enqueue.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MutationConfirmationDraft {
+    pub operation: GithubMutationOperation,
+    pub repository: String,
+    pub arguments: serde_json::Value,
+    pub scope: GithubWriteScope,
+    pub idempotency_key: String,
+    pub command_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GitHubWorkspaceState {
+    pub workspace_id: String,
+    pub run_id: String,
+    pub installation_id: Option<String>,
+    pub panel: GithubPanel,
+    pub repositories: Vec<GithubRepositorySummary>,
+    pub issues: Vec<api_client::GithubIssueSummary>,
+    pub pulls: Vec<GithubPullRequestSummary>,
+    pub audit: Vec<AuditRecordItem>,
+    pub selected_index: usize,
+    pub error: Option<String>,
+    pub loading: bool,
+    pub grant: Option<GithubWriteGrantResult>,
+    pub mutation_title: String,
+    pub mutation_mode: bool,
+    pub confirmation: Option<MutationConfirmationDraft>,
+    pub mutation_status: MutationFlowStatus,
+    pub command_id: Option<String>,
+}
+
+impl GitHubWorkspaceState {
+    pub fn new(workspace_id: String, run_id: String, installation_id: Option<String>) -> Self {
+        Self {
+            workspace_id,
+            run_id,
+            installation_id,
+            panel: GithubPanel::Repositories,
+            repositories: Vec::new(),
+            issues: Vec::new(),
+            pulls: Vec::new(),
+            audit: Vec::new(),
+            selected_index: 0,
+            error: None,
+            loading: false,
+            grant: None,
+            mutation_title: String::new(),
+            mutation_mode: false,
+            confirmation: None,
+            mutation_status: MutationFlowStatus::Idle,
+            command_id: None,
+        }
+    }
+
+    pub fn switch_panel(&mut self, panel: GithubPanel) {
+        self.panel = panel;
+        self.selected_index = 0;
+    }
+
+    pub fn set_repositories(&mut self, repositories: Vec<GithubRepositorySummary>) {
+        self.repositories = repositories;
+        self.clamp_selection();
+    }
+
+    pub fn set_issues(&mut self, issues: Vec<api_client::GithubIssueSummary>) {
+        self.issues = issues;
+        self.clamp_selection();
+    }
+
+    pub fn set_pull_requests(&mut self, pulls: Vec<GithubPullRequestSummary>) {
+        self.pulls = pulls;
+        self.clamp_selection();
+    }
+
+    pub fn set_audit(&mut self, audit: Vec<AuditRecordItem>) {
+        self.audit = audit;
+        self.clamp_selection();
+    }
+
+    fn clamp_selection(&mut self) {
+        let len = self.panel_items_len();
+        if len > 0 && self.selected_index >= len {
+            self.selected_index = len - 1;
+        }
+    }
+
+    fn panel_items_len(&self) -> usize {
+        match self.panel {
+            GithubPanel::Repositories => self.repositories.len(),
+            GithubPanel::Issues => self.issues.len(),
+            GithubPanel::PullRequests => self.pulls.len(),
+            GithubPanel::Audit => self.audit.len(),
+        }
+    }
+
+    pub fn select_next(&mut self) {
+        let len = self.panel_items_len();
+        if len > 0 && self.selected_index + 1 < len {
+            self.selected_index += 1;
+        }
+    }
+
+    pub fn select_prev(&mut self) {
+        self.selected_index = self.selected_index.saturating_sub(1);
+    }
+
+    /// The currently selected repository (its full `owner/repo` name).
+    pub fn selected_repository(&self) -> Option<String> {
+        self.repositories
+            .get(self.selected_index)
+            .map(|repo| repo.full_name.clone())
+    }
+
+    pub fn set_grant(&mut self, grant: GithubWriteGrantResult) {
+        self.grant = Some(grant);
+    }
+
+    pub fn set_mutation_title(&mut self, title: String) {
+        self.mutation_title = title;
+        self.error = None;
+    }
+
+    pub fn set_mutation_status(&mut self, status: MutationFlowStatus) {
+        self.mutation_status = status;
+    }
+
+    pub fn set_command_id(&mut self, command_id: Option<String>) {
+        self.command_id = command_id;
+    }
+
+    /// Build the explicit confirmation draft. Requires a selected repository
+    /// and a non-empty title. The operation is always `create_issue` with
+    /// scope `issues:write` (the mobile's WRITE_SCOPE/OPERATION constants).
+    pub fn begin_mutation(&mut self, title: String) -> Option<MutationConfirmationDraft> {
+        let repository = self.selected_repository()?;
+        if title.trim().is_empty() {
+            return None;
+        }
+        let operation = GithubMutationOperation::CreateIssue;
+        let scope = GithubWriteScope::IssuesWrite;
+        let arguments = serde_json::json!({ "title": title.trim() });
+        let idempotency_key = uuid::Uuid::new_v4().to_string();
+        let command_hash = command_hash(operation, &arguments);
+        Some(MutationConfirmationDraft {
+            operation,
+            repository,
+            arguments,
+            scope,
+            idempotency_key,
+            command_hash,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -587,5 +763,77 @@ mod tests {
         state.request_cancel();
         assert!(state.cancel_requested);
         assert_eq!(state.error, None);
+    }
+
+    #[test]
+    fn github_state_starts_on_repositories_panel() {
+        let state = GitHubWorkspaceState::new("ws_1".to_string(), "r1".to_string(), Some("inst_9".to_string()));
+        assert_eq!(state.panel, GithubPanel::Repositories);
+        assert_eq!(state.installation_id.as_deref(), Some("inst_9"));
+    }
+
+    #[test]
+    fn github_state_switches_panels_and_clamps_selection() {
+        let mut state = GitHubWorkspaceState::new("ws_1".to_string(), "r1".to_string(), None);
+        state.set_repositories(vec![GithubRepositorySummary {
+            id: 1,
+            name: "repo".to_string(),
+            full_name: "octo/repo".to_string(),
+            owner: "octo".to_string(),
+            private: false,
+            default_branch: "main".to_string(),
+            description: None,
+            html_url: "https://github.com/octo/repo".to_string(),
+            archived: false,
+        }]);
+        assert_eq!(state.selected_repository().as_deref(), Some("octo/repo"));
+        state.switch_panel(GithubPanel::Audit);
+        state.select_next(); // clamps to empty list
+        assert_eq!(state.selected_index, 0);
+    }
+
+    #[test]
+    fn github_state_builds_mutation_confirmation_draft() {
+        let mut state = GitHubWorkspaceState::new("ws_1".to_string(), "r1".to_string(), None);
+        state.set_repositories(vec![GithubRepositorySummary {
+            id: 1,
+            name: "repo".to_string(),
+            full_name: "octo/repo".to_string(),
+            owner: "octo".to_string(),
+            private: false,
+            default_branch: "main".to_string(),
+            description: None,
+            html_url: "https://github.com/octo/repo".to_string(),
+            archived: false,
+        }]);
+        let draft = state.begin_mutation("Test issue".to_string()).expect("draft");
+        assert_eq!(draft.operation, GithubMutationOperation::CreateIssue);
+        assert_eq!(draft.repository, "octo/repo");
+        assert_eq!(draft.scope, GithubWriteScope::IssuesWrite);
+        assert_eq!(draft.arguments["title"], "Test issue");
+        assert!(!draft.idempotency_key.is_empty());
+        assert_eq!(
+            draft.command_hash,
+            "22a9632d51b690e300e3ef7fb397048392bc84a388c4ef68beb0d42202815fd8",
+            "must match the mobile/server canonical hash for this command"
+        );
+    }
+
+    #[test]
+    fn github_state_begin_mutation_requires_repository_and_title() {
+        let mut state = GitHubWorkspaceState::new("ws_1".to_string(), "r1".to_string(), None);
+        assert!(state.begin_mutation("Test issue".to_string()).is_none(), "no repository selected");
+        state.set_repositories(vec![GithubRepositorySummary {
+            id: 1,
+            name: "repo".to_string(),
+            full_name: "octo/repo".to_string(),
+            owner: "octo".to_string(),
+            private: false,
+            default_branch: "main".to_string(),
+            description: None,
+            html_url: "https://github.com/octo/repo".to_string(),
+            archived: false,
+        }]);
+        assert!(state.begin_mutation("   ".to_string()).is_none(), "empty title rejected");
     }
 }
