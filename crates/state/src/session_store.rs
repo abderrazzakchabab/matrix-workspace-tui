@@ -146,4 +146,24 @@ mod tests {
         let loaded = store.load().unwrap();
         assert_eq!(loaded, SessionData::default());
     }
+
+    #[test]
+    fn save_creates_parent_directories() {
+        let dir = tempdir().unwrap();
+        let nested = dir.path().join("a").join("b");
+        let store = SessionStore::at_path(nested.join("session.json"));
+        store.save(&SessionData::default()).unwrap();
+        assert!(nested.join("session.json").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn save_sets_mode_0600() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempdir().unwrap();
+        let store = SessionStore::at_path(dir.path().join("session.json"));
+        store.save(&SessionData::default()).unwrap();
+        let mode = fs::metadata(dir.path().join("session.json")).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600, "session file must not be world-readable");
+    }
 }
