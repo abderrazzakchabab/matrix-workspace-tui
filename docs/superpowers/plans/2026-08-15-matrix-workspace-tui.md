@@ -309,7 +309,7 @@ git commit -m "chore: scaffold state and tui crates"
 - Create: `crates/api-client/src/error.rs`
 - Modify: `crates/api-client/src/lib.rs`
 
-- [ ] **Step 1: Write the failing test (in `crates/api-client/src/error.rs`, appended below the types — no, tests live in the same file as `#[cfg(test)]`)**
+- [x] **Step 1: Write the failing test (in `crates/api-client/src/error.rs`, appended below the types — no, tests live in the same file as `#[cfg(test)]`)**
 
 Create `crates/api-client/src/error.rs` with this test-only-free content first, then the test is added together with the impl in the TDD shape. To keep the TDD loop honest, write the test first inside a `#[cfg(test)] mod tests` at the bottom of the file, referencing the not-yet-written types:
 
@@ -329,7 +329,7 @@ mod tests {
     #[test]
     fn api_error_exposes_status_code_and_message() {
         let error = api_error(422, "VALIDATION_ERROR", "Invalid workspace");
-        assert_eq!(error.status(), 422);
+        assert_eq!(error.status(), Some(422));
         assert_eq!(error.code(), Some("VALIDATION_ERROR"));
         assert_eq!(error.to_string(), "control plane returned 422: Invalid workspace");
     }
@@ -364,12 +364,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run the test to see it fail**
+- [x] **Step 2: Run the test to see it fail**
 
 Run: `cargo test -p api-client error_body_parses_optional_fields`
 Expected: `error[E0433]: failed to resolve: use of undeclared type \`ApiErrorBody\`` (and similar E0433/E0432 for `ControlPlaneError`).
 
-- [ ] **Step 3: Write the implementation — full `crates/api-client/src/error.rs`**
+- [x] **Step 3: Write the implementation — full `crates/api-client/src/error.rs`**
 
 ```rust
 use thiserror::Error;
@@ -439,7 +439,7 @@ impl ControlPlaneError {
 }
 ```
 
-- [ ] **Step 4: Wire the module into `crates/api-client/src/lib.rs`**
+- [x] **Step 4: Wire the module into `crates/api-client/src/lib.rs`**
 
 ```rust
 //! Typed HTTP + SSE client for the Matrix Agent Workspace control plane.
@@ -449,12 +449,12 @@ pub mod error;
 pub use error::{ApiErrorBody, ApiErrorDetail, ControlPlaneError};
 ```
 
-- [ ] **Step 5: Run the tests to see them pass**
+- [x] **Step 5: Run the tests to see them pass**
 
 Run: `cargo test -p api-client`
 Expected: `test result: ok. 4 passed; 0 failed; ...`
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add crates/api-client/src/error.rs crates/api-client/src/lib.rs
@@ -467,7 +467,7 @@ git commit -m "feat(api-client): typed control-plane error with session-expired 
 - Create: `crates/api-client/src/http.rs`
 - Modify: `crates/api-client/src/lib.rs`
 
-- [ ] **Step 1: Write the failing test (in `crates/api-client/src/http.rs`, `#[cfg(test)] mod tests`)**
+- [x] **Step 1: Write the failing test (in `crates/api-client/src/http.rs`, `#[cfg(test)] mod tests`)**
 
 ```rust
 #[cfg(test)]
@@ -500,12 +500,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run the test to see it fail**
+- [x] **Step 2: Run the test to see it fail**
 
 Run: `cargo test -p api-client urlencode_matches_js_encodeuricomponent_semantics`
 Expected: `error[E0425]: cannot find function \`urlencode\` in this scope` / `cannot find type \`ControlPlaneApi\``.
 
-- [ ] **Step 3: Write the implementation — full `crates/api-client/src/http.rs`**
+- [x] **Step 3: Write the implementation — full `crates/api-client/src/http.rs`**
 
 ```rust
 use crate::error::{ApiErrorBody, ControlPlaneError};
@@ -660,7 +660,7 @@ impl ControlPlaneApi {
 }
 ```
 
-- [ ] **Step 4: Wire the module into `crates/api-client/src/lib.rs`**
+- [x] **Step 4: Wire the module into `crates/api-client/src/lib.rs`**
 
 ```rust
 //! Typed HTTP + SSE client for the Matrix Agent Workspace control plane.
@@ -672,12 +672,12 @@ pub use error::{ApiErrorBody, ApiErrorDetail, ControlPlaneError};
 pub use http::ControlPlaneApi;
 ```
 
-- [ ] **Step 5: Run the tests to see them pass**
+- [x] **Step 5: Run the tests to see them pass**
 
 Run: `cargo test -p api-client`
 Expected: `test result: ok. 7 passed; 0 failed; ...`
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add crates/api-client/src/http.rs crates/api-client/src/lib.rs
@@ -689,7 +689,7 @@ git commit -m "feat(api-client): http core with cookie handling and urlencode"
 **Files:**
 - Modify: `crates/api-client/src/http.rs` (append tests)
 
-- [ ] **Step 1: Write the failing tests (append to the `tests` module in `crates/api-client/src/http.rs`)**
+- [x] **Step 1: Write the failing tests (append to the `tests` module in `crates/api-client/src/http.rs`)**
 
 ```rust
 use httpmock::prelude::*;
@@ -706,7 +706,7 @@ async fn authenticated_request_sends_cookie_and_parses_body() {
             then.status(200).json_body(json!({ "rooms": [] }));
         })
         .await;
-    let client = ControlPlaneApi::new(server.base_url()).unwrap();
+    let mut client = ControlPlaneApi::new(server.base_url()).unwrap();
     client.set_cookie(Some("sid=abc".to_string()));
     let value: serde_json::Value = client
         .authenticated_request(reqwest::Method::GET, "/api/rooms", None)
@@ -727,7 +727,7 @@ async fn authenticated_request_maps_401_to_session_expired() {
             }));
         })
         .await;
-    let client = ControlPlaneApi::new(server.base_url()).unwrap();
+    let mut client = ControlPlaneApi::new(server.base_url()).unwrap();
     client.set_cookie(Some("sid=abc".to_string()));
     let error = client
         .authenticated_request::<serde_json::Value>(reqwest::Method::GET, "/api/rooms", None)
@@ -747,7 +747,7 @@ async fn authenticated_request_maps_non_ok_status_to_typed_error() {
             }));
         })
         .await;
-    let client = ControlPlaneApi::new(server.base_url()).unwrap();
+    let mut client = ControlPlaneApi::new(server.base_url()).unwrap();
     client.set_cookie(Some("sid=abc".to_string()));
     let error = client
         .authenticated_request::<serde_json::Value>(reqwest::Method::GET, "/api/workspaces", None)
@@ -772,14 +772,14 @@ async fn authenticated_request_without_session_is_no_session() {
 }
 ```
 
-- [ ] **Step 2: Run the tests to see them fail**
+- [x] **Step 2: Run the tests to see them fail**
 
 Run: `cargo test -p api-client authenticated_request`
 Expected: `test result: FAILED. 0 passed; 4 failed` — the methods exist (Task 2.2) but the tests fail because... wait, they should already pass. To force the TDD loop, the real failure to confirm first: `cargo test -p api-client authenticated_request_sends_cookie_and_parses_body` when the mock returns `{"rooms":[]}` but the assertion expects `[]` — no. Instead, run the suite once now: it compiles (methods exist) and **passes**. To keep the red-green loop meaningful, first add the tests, run, and confirm they compile and pass (they test Task 2.2 behavior end-to-end); then in Step 4 make a deliberate behavior improvement (POST JSON bodies) with its own red test.
 
 If you want to see an actual red run first: temporarily change the mock path in the first test to `/api/rooms2`, run, see `test result: FAILED` with `Expected GET http://.../api/rooms2 to be called, but it wasn't` (mock not hit), then revert the path. This confirms the mock harness is wired.
 
-- [ ] **Step 3: Add the POST-with-body test (this is the new behavior being TDD'd)**
+- [x] **Step 3: Add the POST-with-body test (this is the new behavior being TDD'd)**
 
 Append:
 
@@ -804,7 +804,7 @@ async fn authenticated_request_posts_json_body() {
             }));
         })
         .await;
-    let client = ControlPlaneApi::new(server.base_url()).unwrap();
+    let mut client = ControlPlaneApi::new(server.base_url()).unwrap();
     client.set_cookie(Some("sid=abc".to_string()));
     let body = json!({ "name": "my workspace", "policy": { "readOnly": true } });
     let value: serde_json::Value = client
@@ -819,12 +819,12 @@ async fn authenticated_request_posts_json_body() {
 Run: `cargo test -p api-client authenticated_request_posts_json_body`
 Expected: FAIL on first run — the request body is sent as `application/json` and contains the fields, so it passes. If instead you want a guaranteed red: change `.body_contains(r#""name":"my workspace""#)` to `.body_contains(r#""name":"different""#)` → `test result: FAILED` with the mock-body mismatch, then revert. (This is a mock-harness sanity check, not a product bug.)
 
-- [ ] **Step 4: Run the full api-client suite**
+- [x] **Step 4: Run the full api-client suite**
 
 Run: `cargo test -p api-client`
 Expected: `test result: ok. 12 passed; 0 failed; ...`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/api-client/src/http.rs
