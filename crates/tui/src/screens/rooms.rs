@@ -42,7 +42,12 @@ pub fn handle_room_binding_key(state: &mut RoomBindingState, key: KeyEvent) -> C
 pub fn render_rooms(state: &RoomsState, frame: &mut Frame, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(3), Constraint::Min(5), Constraint::Length(2), Constraint::Length(1)])
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Min(5),
+            Constraint::Length(2),
+            Constraint::Length(1),
+        ])
         .split(area);
 
     let title = Paragraph::new(format!("Rooms — workspace {}", state.workspace_id))
@@ -56,7 +61,9 @@ pub fn render_rooms(state: &RoomsState, frame: &mut Frame, area: Rect) {
         .map(|(index, room)| {
             let marker = if index == state.selected { ">" } else { " " };
             let binding = match room.workspace_id.as_deref() {
-                Some(workspace_id) if workspace_id == state.workspace_id => "bound to this workspace",
+                Some(workspace_id) if workspace_id == state.workspace_id => {
+                    "bound to this workspace"
+                }
                 Some(_) => "bound elsewhere",
                 None => "unbound",
             };
@@ -82,13 +89,25 @@ pub fn render_rooms(state: &RoomsState, frame: &mut Frame, area: Rect) {
 pub fn render_room_binding(state: &RoomBindingState, frame: &mut Frame, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(3), Constraint::Length(2), Constraint::Length(2), Constraint::Length(1)])
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Length(2),
+            Constraint::Length(2),
+            Constraint::Length(1),
+        ])
         .split(area);
 
-    let title = Paragraph::new("Bind room to workspace").style(Style::default().add_modifier(Modifier::BOLD));
+    let title = Paragraph::new("Bind room to workspace")
+        .style(Style::default().add_modifier(Modifier::BOLD));
     frame.render_widget(title, chunks[0]);
-    frame.render_widget(Paragraph::new(format!("Room:      {}", state.room.room_id)), chunks[1]);
-    frame.render_widget(Paragraph::new(format!("Workspace: {}", state.workspace_id)), chunks[2]);
+    frame.render_widget(
+        Paragraph::new(format!("Room:      {}", state.room.room_id)),
+        chunks[1],
+    );
+    frame.render_widget(
+        Paragraph::new(format!("Workspace: {}", state.workspace_id)),
+        chunks[2],
+    );
 
     let error = match &state.error {
         Some(message) => Paragraph::new(message.as_str()).style(Style::default().fg(Color::Red)),
@@ -119,27 +138,48 @@ mod tests {
     fn rooms_enter_opens_composer_when_bound_else_binding() {
         let mut bound = RoomsState::new("ws_1".to_string());
         bound.set_rooms(vec![room("!a:example.org", Some("ws_1"))]);
-        assert_eq!(handle_rooms_key(&mut bound, key(KeyCode::Enter)), Command::NavigateToComposer);
+        assert_eq!(
+            handle_rooms_key(&mut bound, key(KeyCode::Enter)),
+            Command::NavigateToComposer
+        );
 
         let mut unbound = RoomsState::new("ws_1".to_string());
         unbound.set_rooms(vec![room("!a:example.org", None)]);
-        assert_eq!(handle_rooms_key(&mut unbound, key(KeyCode::Enter)), Command::NavigateToRoomBinding);
+        assert_eq!(
+            handle_rooms_key(&mut unbound, key(KeyCode::Enter)),
+            Command::NavigateToRoomBinding
+        );
     }
 
     #[test]
     fn rooms_refresh_and_back() {
         let mut state = RoomsState::new("ws_1".to_string());
-        assert_eq!(handle_rooms_key(&mut state, key(KeyCode::Char('r'))), Command::RefreshRooms);
-        assert_eq!(handle_rooms_key(&mut state, key(KeyCode::Char('q'))), Command::Back);
+        assert_eq!(
+            handle_rooms_key(&mut state, key(KeyCode::Char('r'))),
+            Command::RefreshRooms
+        );
+        assert_eq!(
+            handle_rooms_key(&mut state, key(KeyCode::Char('q'))),
+            Command::Back
+        );
     }
 
     #[test]
     fn room_binding_enter_confirms_bind_and_q_goes_back() {
         let mut state = RoomBindingState::new(room("!a:example.org", None), "ws_1".to_string());
-        assert_eq!(handle_room_binding_key(&mut state, key(KeyCode::Char('y'))), Command::BindRoom);
-        assert_eq!(handle_room_binding_key(&mut state, key(KeyCode::Char('q'))), Command::Back);
+        assert_eq!(
+            handle_room_binding_key(&mut state, key(KeyCode::Char('y'))),
+            Command::BindRoom
+        );
+        assert_eq!(
+            handle_room_binding_key(&mut state, key(KeyCode::Char('q'))),
+            Command::Back
+        );
         let mut state = RoomBindingState::new(room("!a:example.org", None), "ws_1".to_string());
-        assert_eq!(handle_room_binding_key(&mut state, key(KeyCode::Enter)), Command::BindRoom);
+        assert_eq!(
+            handle_room_binding_key(&mut state, key(KeyCode::Enter)),
+            Command::BindRoom
+        );
     }
 
     use ratatui::backend::TestBackend;
@@ -148,7 +188,10 @@ mod tests {
     #[test]
     fn rooms_render_shows_rooms_and_binding_state() {
         let mut state = RoomsState::new("ws_1".to_string());
-        state.set_rooms(vec![room("!a:example.org", Some("ws_1")), room("!b:example.org", None)]);
+        state.set_rooms(vec![
+            room("!a:example.org", Some("ws_1")),
+            room("!b:example.org", None),
+        ]);
         let backend = TestBackend::new(70, 12);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal
@@ -157,7 +200,11 @@ mod tests {
                 render_rooms(&state, frame, area);
             })
             .unwrap();
-        let rendered: String = terminal.backend().buffer().content().iter()
+        let rendered: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
             .map(|cell| cell.symbol().to_string())
             .collect();
         assert!(rendered.contains("!a:example.org"), "{rendered}");
@@ -176,7 +223,11 @@ mod tests {
                 render_room_binding(&state, frame, area);
             })
             .unwrap();
-        let rendered: String = terminal.backend().buffer().content().iter()
+        let rendered: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
             .map(|cell| cell.symbol().to_string())
             .collect();
         assert!(rendered.contains("!a:example.org"), "{rendered}");

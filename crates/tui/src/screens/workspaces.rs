@@ -60,8 +60,7 @@ pub fn render_workspaces(state: &WorkspacesState, frame: &mut Frame, area: Rect)
         ])
         .split(area);
 
-    let title = Paragraph::new("Workspaces")
-        .style(Style::default().add_modifier(Modifier::BOLD));
+    let title = Paragraph::new("Workspaces").style(Style::default().add_modifier(Modifier::BOLD));
     frame.render_widget(title, chunks[0]);
 
     let items: Vec<ListItem> = state
@@ -72,17 +71,24 @@ pub fn render_workspaces(state: &WorkspacesState, frame: &mut Frame, area: Rect)
             let marker = if index == state.selected { ">" } else { " " };
             ListItem::new(format!(
                 "{marker} {:<24} {}",
-                workspace.name,
-                workspace.status
+                workspace.name, workspace.status
             ))
         })
         .collect();
-    let list = List::new(items).block(Block::default().borders(Borders::ALL).title("Known workspaces"));
+    let list = List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Known workspaces"),
+    );
     frame.render_widget(list, chunks[1]);
 
     let create = if state.creating {
-        Paragraph::new(state.name_input.as_str())
-            .block(Block::default().borders(Borders::ALL).title("New workspace name (Enter to create)").border_style(Style::default().fg(Color::Cyan)))
+        Paragraph::new(state.name_input.as_str()).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("New workspace name (Enter to create)")
+                .border_style(Style::default().fg(Color::Cyan)),
+        )
     } else {
         Paragraph::new("Press n to create a workspace")
     };
@@ -122,23 +128,47 @@ mod tests {
     #[test]
     fn workspaces_navigation_and_create_mode() {
         let mut state = with_workspaces();
-        assert_eq!(handle_workspaces_key(&mut state, key(KeyCode::Char('j'))), Command::None);
+        assert_eq!(
+            handle_workspaces_key(&mut state, key(KeyCode::Char('j'))),
+            Command::None
+        );
         assert_eq!(state.selected, 0);
-        assert_eq!(handle_workspaces_key(&mut state, key(KeyCode::Enter)), Command::NavigateToRooms);
-        assert_eq!(handle_workspaces_key(&mut state, key(KeyCode::Char('n'))), Command::None);
+        assert_eq!(
+            handle_workspaces_key(&mut state, key(KeyCode::Enter)),
+            Command::NavigateToRooms
+        );
+        assert_eq!(
+            handle_workspaces_key(&mut state, key(KeyCode::Char('n'))),
+            Command::None
+        );
         assert!(state.creating);
-        assert_eq!(handle_workspaces_key(&mut state, key(KeyCode::Char('o'))), Command::None);
+        assert_eq!(
+            handle_workspaces_key(&mut state, key(KeyCode::Char('o'))),
+            Command::None
+        );
         assert_eq!(state.name_input, "o");
-        assert_eq!(handle_workspaces_key(&mut state, key(KeyCode::Backspace)), Command::None);
+        assert_eq!(
+            handle_workspaces_key(&mut state, key(KeyCode::Backspace)),
+            Command::None
+        );
         assert_eq!(state.name_input, "");
-        assert_eq!(handle_workspaces_key(&mut state, key(KeyCode::Char('p'))), Command::None);
-        assert_eq!(handle_workspaces_key(&mut state, key(KeyCode::Enter)), Command::CreateWorkspace);
+        assert_eq!(
+            handle_workspaces_key(&mut state, key(KeyCode::Char('p'))),
+            Command::None
+        );
+        assert_eq!(
+            handle_workspaces_key(&mut state, key(KeyCode::Enter)),
+            Command::CreateWorkspace
+        );
     }
 
     #[test]
     fn workspaces_q_quits() {
         let mut state = with_workspaces();
-        assert_eq!(handle_workspaces_key(&mut state, key(KeyCode::Char('q'))), Command::Quit);
+        assert_eq!(
+            handle_workspaces_key(&mut state, key(KeyCode::Char('q'))),
+            Command::Quit
+        );
     }
 
     use ratatui::backend::TestBackend;
@@ -158,7 +188,11 @@ mod tests {
                 render_workspaces(&state, frame, area);
             })
             .unwrap();
-        let rendered: String = terminal.backend().buffer().content().iter()
+        let rendered: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
             .map(|cell| cell.symbol().to_string())
             .collect();
         assert!(rendered.contains("Alpha"), "{rendered}");

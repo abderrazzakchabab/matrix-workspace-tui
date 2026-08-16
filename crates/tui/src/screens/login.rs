@@ -64,8 +64,16 @@ pub fn render_login(state: &LoginState, frame: &mut Frame, area: Rect) {
     } else {
         Style::default()
     };
-    let url = Paragraph::new(state.homeserver_url.as_str())
-        .block(Block::default().borders(Borders::ALL).title(if url_focus { "Homeserver URL *" } else { "Homeserver URL" }).border_style(url_border));
+    let url = Paragraph::new(state.homeserver_url.as_str()).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(if url_focus {
+                "Homeserver URL *"
+            } else {
+                "Homeserver URL"
+            })
+            .border_style(url_border),
+    );
     frame.render_widget(url, chunks[1]);
 
     let token_focus = state.focus == LoginField::AccessToken;
@@ -74,8 +82,16 @@ pub fn render_login(state: &LoginState, frame: &mut Frame, area: Rect) {
     } else {
         Style::default()
     };
-    let token = Paragraph::new(masked_token(&state.access_token))
-        .block(Block::default().borders(Borders::ALL).title(if token_focus { "Access token *" } else { "Access token" }).border_style(token_border));
+    let token = Paragraph::new(masked_token(&state.access_token)).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(if token_focus {
+                "Access token *"
+            } else {
+                "Access token"
+            })
+            .border_style(token_border),
+    );
     frame.render_widget(token, chunks[2]);
 
     let error = match &state.error {
@@ -101,30 +117,51 @@ mod tests {
     #[test]
     fn typing_goes_to_the_focused_field() {
         let mut state = LoginState::default();
-        assert_eq!(handle_login_key(&mut state, key(KeyCode::Char('h'))), Command::None);
+        assert_eq!(
+            handle_login_key(&mut state, key(KeyCode::Char('h'))),
+            Command::None
+        );
         assert_eq!(state.homeserver_url, "h");
-        assert_eq!(handle_login_key(&mut state, key(KeyCode::Char('\t'))), Command::None);
+        assert_eq!(
+            handle_login_key(&mut state, key(KeyCode::Char('\t'))),
+            Command::None
+        );
         assert_eq!(state.focus, LoginField::AccessToken);
-        assert_eq!(handle_login_key(&mut state, key(KeyCode::Char('t'))), Command::None);
+        assert_eq!(
+            handle_login_key(&mut state, key(KeyCode::Char('t'))),
+            Command::None
+        );
         assert_eq!(state.access_token, "t");
-        assert_eq!(handle_login_key(&mut state, key(KeyCode::Backspace)), Command::None);
+        assert_eq!(
+            handle_login_key(&mut state, key(KeyCode::Backspace)),
+            Command::None
+        );
         assert_eq!(state.access_token, "");
     }
 
     #[test]
     fn enter_submits_only_when_valid() {
         let mut state = LoginState::default();
-        assert_eq!(handle_login_key(&mut state, key(KeyCode::Enter)), Command::None);
+        assert_eq!(
+            handle_login_key(&mut state, key(KeyCode::Enter)),
+            Command::None
+        );
         assert!(state.error.is_some(), "invalid form shows an error");
         state.set_homeserver_url("https://matrix.example.org".to_string());
         state.set_access_token("tok".to_string());
-        assert_eq!(handle_login_key(&mut state, key(KeyCode::Enter)), Command::SubmitLogin);
+        assert_eq!(
+            handle_login_key(&mut state, key(KeyCode::Enter)),
+            Command::SubmitLogin
+        );
     }
 
     #[test]
     fn q_quits() {
         let mut state = LoginState::default();
-        assert_eq!(handle_login_key(&mut state, key(KeyCode::Char('q'))), Command::Quit);
+        assert_eq!(
+            handle_login_key(&mut state, key(KeyCode::Char('q'))),
+            Command::Quit
+        );
     }
 
     use ratatui::backend::TestBackend;
@@ -145,11 +182,18 @@ mod tests {
                 render_login(&state, frame, area);
             })
             .unwrap();
-        let rendered: String = terminal.backend().buffer().content().iter()
+        let rendered: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
             .map(|cell| cell.symbol().to_string())
             .collect();
         assert!(rendered.contains("Matrix Agent Workspace"), "{rendered}");
-        assert!(rendered.contains("https://matrix.example.org"), "{rendered}");
+        assert!(
+            rendered.contains("https://matrix.example.org"),
+            "{rendered}"
+        );
         assert!(rendered.contains("Invalid token"), "{rendered}");
         // The token must never be rendered verbatim.
         assert!(!rendered.contains("secret"), "token is masked: {rendered}");

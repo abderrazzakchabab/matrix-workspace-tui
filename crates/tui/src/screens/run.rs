@@ -63,7 +63,14 @@ pub fn render_run(state: &RunState, frame: &mut Frame, area: Rect) {
     let items: Vec<ListItem> = state
         .events()
         .iter()
-        .map(|event| ListItem::new(format!("#{} {} {}", event.sequence, event.event_type.as_str(), event.payload)))
+        .map(|event| {
+            ListItem::new(format!(
+                "#{} {} {}",
+                event.sequence,
+                event.event_type.as_str(),
+                event.payload
+            ))
+        })
         .collect();
     let list = List::new(items).block(Block::default().borders(Borders::ALL).title("Timeline"));
     frame.render_widget(list, chunks[2]);
@@ -71,9 +78,19 @@ pub fn render_run(state: &RunState, frame: &mut Frame, area: Rect) {
     let deliveries: Vec<ListItem> = state
         .deliveries
         .iter()
-        .map(|delivery| ListItem::new(format!("sequence {}: {}", delivery.sequence, delivery_label(delivery.status))))
+        .map(|delivery| {
+            ListItem::new(format!(
+                "sequence {}: {}",
+                delivery.sequence,
+                delivery_label(delivery.status)
+            ))
+        })
         .collect();
-    let deliveries = List::new(deliveries).block(Block::default().borders(Borders::ALL).title("Matrix delivery (authoritative)"));
+    let deliveries = List::new(deliveries).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Matrix delivery (authoritative)"),
+    );
     frame.render_widget(deliveries, chunks[3]);
 
     let error = match &state.error {
@@ -98,13 +115,27 @@ mod tests {
     #[test]
     fn run_keys_map_to_commands() {
         let mut state = RunState::new("r1".to_string(), "ws_1".to_string());
-        assert_eq!(handle_run_key(&mut state, key(KeyCode::Char('c'))), Command::CancelRun);
-        assert_eq!(handle_run_key(&mut state, key(KeyCode::Char('r'))), Command::RefreshDeliveries);
-        assert_eq!(handle_run_key(&mut state, key(KeyCode::Char('g'))), Command::NavigateToGitHubWorkspace);
-        assert_eq!(handle_run_key(&mut state, key(KeyCode::Char('q'))), Command::Back);
+        assert_eq!(
+            handle_run_key(&mut state, key(KeyCode::Char('c'))),
+            Command::CancelRun
+        );
+        assert_eq!(
+            handle_run_key(&mut state, key(KeyCode::Char('r'))),
+            Command::RefreshDeliveries
+        );
+        assert_eq!(
+            handle_run_key(&mut state, key(KeyCode::Char('g'))),
+            Command::NavigateToGitHubWorkspace
+        );
+        assert_eq!(
+            handle_run_key(&mut state, key(KeyCode::Char('q'))),
+            Command::Back
+        );
     }
 
-    use api_client::{EventVisibility, MatrixDelivery, MatrixDeliveryStatus, RunEvent, RunEventType};
+    use api_client::{
+        EventVisibility, MatrixDelivery, MatrixDeliveryStatus, RunEvent, RunEventType,
+    };
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;
 
@@ -140,7 +171,11 @@ mod tests {
                 render_run(&state, frame, area);
             })
             .unwrap();
-        let rendered: String = terminal.backend().buffer().content().iter()
+        let rendered: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
             .map(|cell| cell.symbol().to_string())
             .collect();
         assert!(rendered.contains("Run r1"), "{rendered}");

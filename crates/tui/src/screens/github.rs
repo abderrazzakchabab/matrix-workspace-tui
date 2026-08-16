@@ -4,7 +4,7 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
 use ratatui::Frame;
-use state::screens::{GithubPanel, GitHubWorkspaceState, MutationFlowStatus};
+use state::screens::{GitHubWorkspaceState, GithubPanel, MutationFlowStatus};
 
 pub fn handle_github_workspace_key(state: &mut GitHubWorkspaceState, key: KeyEvent) -> Command {
     if state.confirmation.is_some() {
@@ -93,7 +93,14 @@ fn panel_items(state: &GitHubWorkspaceState) -> Vec<String> {
         GithubPanel::Repositories => state
             .repositories
             .iter()
-            .map(|repo| format!("{} ({}branch {})", repo.full_name, if repo.private { "private " } else { "" }, repo.default_branch))
+            .map(|repo| {
+                format!(
+                    "{} ({}branch {})",
+                    repo.full_name,
+                    if repo.private { "private " } else { "" },
+                    repo.default_branch
+                )
+            })
             .collect(),
         GithubPanel::Issues => state
             .issues
@@ -103,12 +110,27 @@ fn panel_items(state: &GitHubWorkspaceState) -> Vec<String> {
         GithubPanel::PullRequests => state
             .pulls
             .iter()
-            .map(|pull| format!("#{} {} [{}]{}", pull.number, pull.title, pull.state, if pull.draft { " draft" } else { "" }))
+            .map(|pull| {
+                format!(
+                    "#{} {} [{}]{}",
+                    pull.number,
+                    pull.title,
+                    pull.state,
+                    if pull.draft { " draft" } else { "" }
+                )
+            })
             .collect(),
         GithubPanel::Audit => state
             .audit
             .iter()
-            .map(|record| format!("{} {} {}", record.created_at, record.operation.as_deref().unwrap_or("-"), record.outcome))
+            .map(|record| {
+                format!(
+                    "{} {} {}",
+                    record.created_at,
+                    record.operation.as_deref().unwrap_or("-"),
+                    record.outcome
+                )
+            })
             .collect(),
     }
 }
@@ -143,7 +165,8 @@ pub fn render_github_workspace(state: &GitHubWorkspaceState, frame: &mut Frame, 
         ])
         .split(area);
 
-    let title = Paragraph::new("GitHub workspace").style(Style::default().add_modifier(Modifier::BOLD));
+    let title =
+        Paragraph::new("GitHub workspace").style(Style::default().add_modifier(Modifier::BOLD));
     frame.render_widget(title, chunks[0]);
     frame.render_widget(Paragraph::new(panel_title(state.panel)), chunks[1]);
 
@@ -151,7 +174,11 @@ pub fn render_github_workspace(state: &GitHubWorkspaceState, frame: &mut Frame, 
         .into_iter()
         .enumerate()
         .map(|(index, line)| {
-            let marker = if index == state.selected_index { ">" } else { " " };
+            let marker = if index == state.selected_index {
+                ">"
+            } else {
+                " "
+            };
             ListItem::new(format!("{marker} {line}"))
         })
         .collect();
@@ -161,7 +188,9 @@ pub fn render_github_workspace(state: &GitHubWorkspaceState, frame: &mut Frame, 
     let status_line = mutation_status_line(state.mutation_status, state.command_id.as_ref());
     let status = if status_line.is_empty() {
         match &state.error {
-            Some(message) => Paragraph::new(message.as_str()).style(Style::default().fg(Color::Red)),
+            Some(message) => {
+                Paragraph::new(message.as_str()).style(Style::default().fg(Color::Red))
+            }
             None => Paragraph::new(""),
         }
     } else {
@@ -190,15 +219,28 @@ pub fn render_github_workspace(state: &GitHubWorkspaceState, frame: &mut Frame, 
         frame.render_widget(confirmation, chunks[4]);
     } else {
         let hints = if state.mutation_mode {
-            Paragraph::new(format!("Issue title: {}   (Enter: review, q: cancel)", state.mutation_title))
+            Paragraph::new(format!(
+                "Issue title: {}   (Enter: review, q: cancel)",
+                state.mutation_title
+            ))
         } else {
-            Paragraph::new("1-4: panels   r: refresh   g: request write grant   m: compose mutation   q: back")
+            Paragraph::new(
+                "1-4: panels   r: refresh   g: request write grant   m: compose mutation   q: back",
+            )
         };
         frame.render_widget(hints, chunks[4]);
     }
 
     let grant_line = match &state.grant {
-        Some(grant) => format!("Grant {}{}", grant.grant_id, if grant.status == api_client::GrantStatus::Pending { " (pending approval)" } else { "" }),
+        Some(grant) => format!(
+            "Grant {}{}",
+            grant.grant_id,
+            if grant.status == api_client::GrantStatus::Pending {
+                " (pending approval)"
+            } else {
+                ""
+            }
+        ),
         None => "No write grant requested yet".to_string(),
     };
     frame.render_widget(Paragraph::new(grant_line), chunks[5]);
@@ -229,7 +271,11 @@ mod tests {
     }
 
     fn github() -> GitHubWorkspaceState {
-        let mut state = GitHubWorkspaceState::new("ws_1".to_string(), "r1".to_string(), Some("inst_9".to_string()));
+        let mut state = GitHubWorkspaceState::new(
+            "ws_1".to_string(),
+            "r1".to_string(),
+            Some("inst_9".to_string()),
+        );
         state.set_repositories(vec![repo()]);
         state
     }
@@ -237,23 +283,47 @@ mod tests {
     #[test]
     fn github_panel_switching_and_navigation() {
         let mut state = github();
-        assert_eq!(handle_github_workspace_key(&mut state, key(KeyCode::Char('2'))), Command::None);
+        assert_eq!(
+            handle_github_workspace_key(&mut state, key(KeyCode::Char('2'))),
+            Command::None
+        );
         assert_eq!(state.panel, GithubPanel::Issues);
-        assert_eq!(handle_github_workspace_key(&mut state, key(KeyCode::Char('4'))), Command::None);
+        assert_eq!(
+            handle_github_workspace_key(&mut state, key(KeyCode::Char('4'))),
+            Command::None
+        );
         assert_eq!(state.panel, GithubPanel::Audit);
-        assert_eq!(handle_github_workspace_key(&mut state, key(KeyCode::Char('q'))), Command::Back);
-        assert_eq!(handle_github_workspace_key(&mut state, key(KeyCode::Char('r'))), Command::RefreshPanel);
+        assert_eq!(
+            handle_github_workspace_key(&mut state, key(KeyCode::Char('q'))),
+            Command::Back
+        );
+        assert_eq!(
+            handle_github_workspace_key(&mut state, key(KeyCode::Char('r'))),
+            Command::RefreshPanel
+        );
     }
 
     #[test]
     fn github_grant_and_mutation_flow() {
         let mut state = github();
-        assert_eq!(handle_github_workspace_key(&mut state, key(KeyCode::Char('g'))), Command::RequestGrant);
-        assert_eq!(handle_github_workspace_key(&mut state, key(KeyCode::Char('m'))), Command::None);
+        assert_eq!(
+            handle_github_workspace_key(&mut state, key(KeyCode::Char('g'))),
+            Command::RequestGrant
+        );
+        assert_eq!(
+            handle_github_workspace_key(&mut state, key(KeyCode::Char('m'))),
+            Command::None
+        );
         assert!(state.mutation_mode);
-        assert_eq!(handle_github_workspace_key(&mut state, key(KeyCode::Char('t'))), Command::None);
+        assert_eq!(
+            handle_github_workspace_key(&mut state, key(KeyCode::Char('t'))),
+            Command::None
+        );
         assert_eq!(state.mutation_title, "t");
-        assert_eq!(handle_github_workspace_key(&mut state, key(KeyCode::Enter)), Command::None);
+        assert_eq!(
+            handle_github_workspace_key(&mut state, key(KeyCode::Enter)),
+            Command::None
+        );
         assert!(state.confirmation.is_some(), "confirmation draft shown");
     }
 
@@ -261,10 +331,16 @@ mod tests {
     fn github_confirmation_keys_confirm_or_dismiss() {
         let mut state = github();
         state.confirmation = state.begin_mutation("Test issue".to_string());
-        assert_eq!(handle_github_workspace_key(&mut state, key(KeyCode::Char('y'))), Command::ConfirmMutation);
+        assert_eq!(
+            handle_github_workspace_key(&mut state, key(KeyCode::Char('y'))),
+            Command::ConfirmMutation
+        );
         let mut state = github();
         state.confirmation = state.begin_mutation("Test issue".to_string());
-        assert_eq!(handle_github_workspace_key(&mut state, key(KeyCode::Char('n'))), Command::None);
+        assert_eq!(
+            handle_github_workspace_key(&mut state, key(KeyCode::Char('n'))),
+            Command::None
+        );
         assert!(state.confirmation.is_none(), "dismissed");
     }
 
@@ -285,7 +361,11 @@ mod tests {
                 render_github_workspace(&state, frame, area);
             })
             .unwrap();
-        let rendered: String = terminal.backend().buffer().content().iter()
+        let rendered: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
             .map(|cell| cell.symbol().to_string())
             .collect();
         assert!(rendered.contains("octo/repo"), "{rendered}");
