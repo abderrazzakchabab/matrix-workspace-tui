@@ -138,6 +138,95 @@ impl WorkspacesState {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct RoomsState {
+    pub rooms: Vec<RoomSummary>,
+    pub workspace_id: String,
+    pub selected: usize,
+    pub error: Option<String>,
+    pub loading: bool,
+}
+
+impl RoomsState {
+    pub fn new(workspace_id: String) -> Self {
+        Self {
+            rooms: Vec::new(),
+            workspace_id,
+            selected: 0,
+            error: None,
+            loading: false,
+        }
+    }
+
+    pub fn set_rooms(&mut self, rooms: Vec<RoomSummary>) {
+        self.rooms = rooms;
+        if !self.rooms.is_empty() && self.selected >= self.rooms.len() {
+            self.selected = self.rooms.len() - 1;
+        }
+    }
+
+    pub fn selected(&self) -> usize {
+        self.selected
+    }
+
+    pub fn selected_room(&self) -> Option<&RoomSummary> {
+        self.rooms.get(self.selected)
+    }
+
+    pub fn select_next(&mut self) {
+        if !self.rooms.is_empty() && self.selected + 1 < self.rooms.len() {
+            self.selected += 1;
+        }
+    }
+
+    pub fn select_prev(&mut self) {
+        self.selected = self.selected.saturating_sub(1);
+    }
+
+    /// True when the selected room is bound to this screen's workspace.
+    pub fn room_is_bound_to_workspace(&self) -> bool {
+        matches!(
+            self.selected_room(),
+            Some(room) if room.workspace_id.as_deref() == Some(self.workspace_id.as_str())
+        )
+    }
+
+    /// Reflect a successful bind (POST binding) without refetching.
+    pub fn mark_room_bound(&mut self, room_id: &str) {
+        for room in &mut self.rooms {
+            if room.room_id == room_id {
+                room.workspace_id = Some(self.workspace_id.clone());
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RoomBindingState {
+    pub room: RoomSummary,
+    pub workspace_id: String,
+    pub error: Option<String>,
+    pub binding: bool,
+    /// Set when the bind succeeded; the TUI pops back to Rooms on seeing it.
+    pub done: bool,
+}
+
+impl RoomBindingState {
+    pub fn new(room: RoomSummary, workspace_id: String) -> Self {
+        Self {
+            room,
+            workspace_id,
+            error: None,
+            binding: false,
+            done: false,
+        }
+    }
+
+    pub fn mark_bound(&mut self) {
+        self.done = true;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -212,5 +301,54 @@ mod tests {
         assert_eq!(state.selected().unwrap().workspace_id, "ws_1");
         state.select_prev(); // clamps at the start
         assert_eq!(state.selected().unwrap().workspace_id, "ws_1");
+    }
+
+    fn room(id: &str, workspace_id: Option<&str>) -> RoomSummary {
+        RoomSummary {
+            room_id: id.to_string(),
+            homeserver_url: "https://example.org".to_string(),
+            display_name: Some(id.to_string()),
+            workspace_id: workspace_id.map(|value| value.to_string()),
+        }
+    }
+
+    #[test]
+    fn rooms_state_tracks_selection_and_binding() {
+        let mut state = RoomsState::new("ws_1".to_string());
+        assert!(state.selected_room().is_none());
+        state.set_rooms(vec![room("!a:example.org", Some("ws_1")), room("!b:example.org", None)]);
+        assert!(state.room_is_bound_to_workspace(), "first room is bound to ws_1");
+        state.select_next();
+        assert!(!state.room_is_bound_to_workspace(), "second room is unbound");
+        assert_eq!(state.selected_room().unwrap().room_id, "!b:example.org");
+    }
+
+    #[test]
+    fn rooms_state_clamps_selection_when_list_shrinks() {
+        let mut state = RoomsState::new("ws_1".to_string());
+        state.set_rooms(vec![room("!a:example.org", None), room("!b:example.org", None)]);
+        state.select_next();
+        state.set_rooms(vec![room("!a:example.org", None)]);
+        assert_eq!(state.selected(), 0);
+        assert_eq!(state.selected_room().unwrap().room_id, "!a:example.org");
+    }
+
+    #[test]
+    fn rooms_state_marks_binding_after_bind() {
+        let mut state = RoomsState::new("ws_1".to_string());
+        state.set_rooms(vec![room("!a:example.org", None)]);
+        assert!(!state.room_is_bound_to_workspace());
+        state.mark_room_bound("!a:example.org");
+        assert!(state.room_is_bound_to_workspace());
+    }
+
+    #[test]
+    fn room_binding_state_starts_pending_and_marks_bound() {
+        let mut state = RoomBindingState::new(room("!a:example.org", None), "ws_1".to_string());
+        assert!(!state.done);
+        assert_eq!(state.room.room_id, "!a:example.org");
+        assert_eq!(state.workspace_id, "ws_1");
+        state.mark_bound();
+        assert!(state.done);
     }
 }
