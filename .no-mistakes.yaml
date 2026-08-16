@@ -1,0 +1,5 @@
+# This repository intentionally has no CI yet: the implementation plan adds
+# .github/workflows (ci.yml, release.yml) in a later group. Declared so the
+# no-mistakes gate treats a zero-check PR head as all-checks-passed instead of
+# waiting forever for checks that do not exist. Remove this once CI is live.
+no_ci: true
