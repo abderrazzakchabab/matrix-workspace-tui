@@ -75,3 +75,54 @@ pub struct RoomBinding {
 pub struct BindRoomRequest {
     pub workspace_id: String,
 }
+
+/// Run execution mode (mirrors RunRequest.mode).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RunMode {
+    Parallel,
+    Sequential,
+}
+
+/// Launch body minus the idempotency key (mirrors RunRequest in packages/contracts/src/run.ts).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunRequest {
+    pub prompt: String,
+    pub mode: RunMode,
+    pub specialist_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub room_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub github_context: Option<GithubContext>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GithubContext {
+    pub repository: String,
+}
+
+/// Run lifecycle status (mirrors RunResponse.status).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RunStatus {
+    Queued,
+    Running,
+    Cancelling,
+    Completed,
+    Failed,
+    Cancelled,
+    Partial,
+}
+
+/// POST /api/workspaces/:workspaceId/runs response (mirrors RunResponse).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunResponse {
+    pub run_id: String,
+    pub status: RunStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub room_id: Option<String>,
+    pub next_sequence: u64,
+}
