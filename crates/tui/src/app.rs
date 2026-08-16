@@ -157,6 +157,58 @@ impl App {
         self.stack = vec![Screen::Login(state::screens::LoginState::default())];
         self.set_status("Session expired; sign in again");
     }
+
+    /// Execute a command produced by a screen handler.
+    pub async fn execute_command(&mut self, command: Command) {
+        match command {
+            Command::None => {}
+            Command::Quit => self.should_quit = true,
+            Command::Back => {
+                if self.stack.len() > 1 {
+                    self.pop();
+                } else {
+                    self.should_quit = true;
+                }
+            }
+            Command::NavigateToRoomBinding => self.navigate_to_room_binding(),
+            Command::NavigateToComposer => self.navigate_to_composer(),
+            // Async arms restored in Task 7.4.
+            _ => {}
+        }
+    }
+
+    fn navigate_to_room_binding(&mut self) {
+        let (room, workspace_id) = match self.current() {
+            Screen::Rooms(state) => match state.selected_room() {
+                Some(room) => (room.clone(), state.workspace_id.clone()),
+                None => return,
+            },
+            _ => return,
+        };
+        self.push(Screen::RoomBinding(state::screens::RoomBindingState::new(room, workspace_id)));
+    }
+
+    fn navigate_to_composer(&mut self) {
+        let (room_id, workspace_id) = match self.current() {
+            Screen::Rooms(state) => match state.selected_room() {
+                Some(room) => (room.room_id.clone(), state.workspace_id.clone()),
+                None => return,
+            },
+            _ => return,
+        };
+        self.push(Screen::RunComposer(state::screens::RunComposerState::new(room_id, workspace_id)));
+    }
+
+    fn navigate_to_github_workspace(&mut self) {
+        let (workspace_id, run_id) = match self.current() {
+            Screen::Run(state) => (state.workspace_id.clone(), state.run_id.clone()),
+            _ => return,
+        };
+        let installation_id = self.github_installation_id.clone();
+        self.push(Screen::GitHubWorkspace(
+            state::screens::GitHubWorkspaceState::new(workspace_id, run_id, installation_id),
+        ));
+    }
 }
 
 #[cfg(test)]
@@ -230,5 +282,57 @@ mod tests {
         store.save(&data).unwrap();
         let mut app = App::new("http://localhost:3000".to_string(), SessionStore::at_path(dir.path().join("session.json")));
         assert_eq!(app.handle_key(key(KeyCode::Char('q'))), Command::Quit);
+    }
+
+    #[tokio::test]
+    async fn back_command_pops_to_previous_screen() {
+        let dir = tempdir().unwrap();
+        let mut app = App::new("http://localhost:3000".to_string(), SessionStore::at_path(dir.path().join("session.json")));
+        app.push(Screen::Rooms(state::screens::RoomsState::new("ws_1".to_string())));
+        app.execute_command(Command::Back).await;
+        assert_eq!(app.current().id(), ScreenId::Login);
+    }
+
+    #[tokio::test]
+    async fn back_at_root_quits() {
+        let dir = tempdir().unwrap();
+        let mut app = App::new("http://localhost:3000".to_string(), SessionStore::at_path(dir.path().join("session.json")));
+        app.execute_command(Command::Back).await;
+        assert!(app.should_quit);
+    }
+
+    #[tokio::test]
+    async fn navigate_to_room_binding_pushes_binding_screen() {
+        let dir = tempdir().unwrap();
+        let mut app = App::new("http://localhost:3000".to_string(), SessionStore::at_path(dir.path().join("session.json")));
+        let mut rooms = state::screens::RoomsState::new("ws_1".to_string());
+        rooms.set_rooms(vec![api_client::RoomSummary {
+            room_id: "!a:example.org".to_string(),
+            homeserver_url: "https://example.org".to_string(),
+            display_name: None,
+            workspace_id: None,
+        }]);
+        app.push(Screen::Rooms(rooms));
+        app.execute_command(Command::NavigateToRoomBinding).await;
+        assert_eq!(app.current().id(), ScreenId::RoomBinding);
+    }
+
+    #[tokio::test]
+    async fn navigate_to_composer_pushes_composer_screen() {
+        let dir = tempdir().unwrap();
+        let mut app = App::new("http://localhost:3000".to_string(), SessionStore::at_path(dir.path().join("session.json")));
+        let mut rooms = state::screens::RoomsState::new("ws_1".to_string());
+        rooms.set_rooms(vec![api_client::RoomSummary {
+            room_id: "!a:example.org".to_string(),
+            homeserver_url: "https://example.org".to_string(),
+            display_name: None,
+            workspace_id: Some("ws_1".to_string()),
+        }]);
+        app.push(Screen::Rooms(rooms));
+        app.execute_command(Command::NavigateToComposer).await;
+        assert_eq!(app.current().id(), ScreenId::RunComposer);
+        let Screen::RunComposer(composer) = app.current() else { panic!("composer") };
+        assert_eq!(composer.room_id, "!a:example.org");
+        assert_eq!(composer.workspace_id, "ws_1");
     }
 }
