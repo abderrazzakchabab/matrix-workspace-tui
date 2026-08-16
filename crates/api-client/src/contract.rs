@@ -50,3 +50,13 @@ pub struct WorkspacePolicy {
     pub failure_policy: String,
     pub prompt_injection_mode: String,
 }
+
+/// GET /api/rooms item (mirrors RoomSummary).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoomSummary {
+    pub room_id: String,
+    pub homeserver_url: String,
+    pub display_name: Option<String>,
+    pub workspace_id: Option<String>,
+}
