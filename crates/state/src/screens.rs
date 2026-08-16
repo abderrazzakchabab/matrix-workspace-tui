@@ -315,6 +315,59 @@ impl RunComposerState {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct RunState {
+    pub run_id: String,
+    pub workspace_id: String,
+    pub buffer: RunEventBuffer,
+    pub deliveries: Vec<MatrixDelivery>,
+    pub cancel_requested: bool,
+    pub reconnecting: bool,
+    pub error: Option<String>,
+}
+
+impl RunState {
+    pub fn new(run_id: String, workspace_id: String) -> Self {
+        Self {
+            run_id,
+            workspace_id,
+            buffer: RunEventBuffer::new(),
+            deliveries: Vec::new(),
+            cancel_requested: false,
+            reconnecting: false,
+            error: None,
+        }
+    }
+
+    pub fn accept(&mut self, event: RunEvent) -> bool {
+        self.buffer.accept(event)
+    }
+
+    pub fn is_terminal(&self) -> bool {
+        self.buffer.is_terminal()
+    }
+
+    pub fn events(&self) -> &[RunEvent] {
+        self.buffer.events()
+    }
+
+    pub fn highest_sequence(&self) -> u64 {
+        self.buffer.highest_sequence()
+    }
+
+    pub fn set_reconnecting(&mut self, value: bool) {
+        self.reconnecting = value;
+    }
+
+    pub fn set_deliveries(&mut self, deliveries: Vec<MatrixDelivery>) {
+        self.deliveries = deliveries;
+    }
+
+    pub fn request_cancel(&mut self) {
+        self.cancel_requested = true;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -493,5 +546,46 @@ mod tests {
         assert_eq!(state.selected_specialists, vec!["pr-reader"]);
         state.move_specialist_cursor_prev();
         assert_eq!(state.specialist_cursor, 1);
+    }
+
+    fn event(sequence: u64, event_type: api_client::RunEventType) -> RunEvent {
+        RunEvent {
+            id: format!("ev_{sequence}"),
+            run_id: "r1".to_string(),
+            sequence,
+            event_type,
+            version: 1,
+            occurred_at: "2026-08-15T00:00:00.000Z".to_string(),
+            visibility: api_client::EventVisibility::RoomAndOwner,
+            payload: serde_json::json!({}),
+        }
+    }
+
+    #[test]
+    fn run_state_accepts_events_and_detects_terminal() {
+        let mut state = RunState::new("r1".to_string(), "ws_1".to_string());
+        assert_eq!(state.highest_sequence(), 0);
+        assert!(state.accept(event(1, api_client::RunEventType::RunStarted)));
+        assert!(!state.is_terminal());
+        assert!(state.accept(event(2, api_client::RunEventType::RunCompleted)));
+        assert!(state.is_terminal());
+        assert!(!state.accept(event(3, api_client::RunEventType::RunStarted)), "post-terminal rejected");
+        assert_eq!(state.events().len(), 2);
+    }
+
+    #[test]
+    fn run_state_tracks_deliveries_cancel_and_reconnect() {
+        let mut state = RunState::new("r1".to_string(), "ws_1".to_string());
+        state.set_reconnecting(true);
+        assert!(state.reconnecting);
+        state.set_deliveries(vec![
+            MatrixDelivery { sequence: 1, status: api_client::MatrixDeliveryStatus::Delivered },
+            MatrixDelivery { sequence: 2, status: api_client::MatrixDeliveryStatus::Pending },
+        ]);
+        assert_eq!(state.deliveries.len(), 2);
+        assert_eq!(state.deliveries[1].status, api_client::MatrixDeliveryStatus::Pending);
+        state.request_cancel();
+        assert!(state.cancel_requested);
+        assert_eq!(state.error, None);
     }
 }
