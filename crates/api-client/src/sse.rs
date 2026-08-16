@@ -163,6 +163,7 @@ pub struct EventStream {
     run_id: String,
     after: u64,
     terminal: bool,
+    fatal: bool,
     reconnect_attempt: u32,
     next_reconnect: Option<Instant>,
     base_delay_ms: u64,
@@ -180,6 +181,7 @@ impl EventStream {
             run_id: run_id.to_string(),
             after,
             terminal: false,
+            fatal: false,
             reconnect_attempt: 0,
             next_reconnect: None,
             base_delay_ms: 500,
@@ -312,7 +314,7 @@ impl EventStream {
     /// Pull the next item from the stream.
     pub async fn next(&mut self) -> Option<Result<StreamEvent, ControlPlaneError>> {
         loop {
-            if self.terminal {
+            if self.terminal || self.fatal {
                 return None;
             }
             if let Some(event) = self.pending.pop_front() {
@@ -332,7 +334,10 @@ impl EventStream {
             }
             match self.open_and_read().await {
                 Ok(()) => {}
-                Err(error) => return Some(Err(error)),
+                Err(error) => {
+                    self.fatal = true;
+                    return Some(Err(error));
+                }
             }
         }
     }
@@ -812,8 +817,12 @@ mod tests {
         }
         assert_eq!(
             statuses,
-            vec![Some(403); 4],
-            "fatal status surfaces as an error, never a reconnect"
+            vec![Some(403)],
+            "fatal status surfaces exactly once, then the stream ends"
+        );
+        assert!(
+            stream.next().await.is_none(),
+            "stream must end after the fatal error, not re-issue the request"
         );
     }
 
