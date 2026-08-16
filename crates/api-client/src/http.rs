@@ -238,7 +238,11 @@ mod tests {
         let mut client = ControlPlaneApi::new(server.base_url()).unwrap();
         client.set_cookie(Some("sid=abc".to_string()));
         let error = client
-            .authenticated_request::<serde_json::Value>(reqwest::Method::GET, "/api/workspaces", None)
+            .authenticated_request::<serde_json::Value>(
+                reqwest::Method::GET,
+                "/api/workspaces",
+                None,
+            )
             .await
             .unwrap_err();
         assert_eq!(error.status(), Some(422));

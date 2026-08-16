@@ -81,7 +81,10 @@ mod tests {
         let error = api_error(422, "VALIDATION_ERROR", "Invalid workspace");
         assert_eq!(error.status(), Some(422));
         assert_eq!(error.code(), Some("VALIDATION_ERROR"));
-        assert_eq!(error.to_string(), "control plane returned 422: Invalid workspace");
+        assert_eq!(
+            error.to_string(),
+            "control plane returned 422: Invalid workspace"
+        );
     }
 
     #[test]
