@@ -20,8 +20,17 @@ function sha256hex(buffer) {
  * actually lives, mirroring GitHub's release-download 302 to the CDN.
  * With neverRespond, the binary request is accepted but never answered, to
  * exercise the download client's timeout path.
+ * With dropMidBody, the binary response starts writing then the connection is
+ * destroyed mid-body, to exercise the client's dropped-stream error path.
  */
-function startServer({ binaryBuffer, checksumLine, neverRespond = false, redirect = false, redirectLocation = null }) {
+function startServer({
+  binaryBuffer,
+  checksumLine,
+  neverRespond = false,
+  redirect = false,
+  redirectLocation = null,
+  dropMidBody = false,
+}) {
   const { binaryName } = getPlatform();
   const hits = { binary: 0, checksum: 0, redirect: 0 };
   const sockets = new Set();
@@ -42,6 +51,14 @@ function startServer({ binaryBuffer, checksumLine, neverRespond = false, redirec
       hits.binary += 1;
       if (neverRespond) {
         return; // hold the connection open, never answer
+      }
+      if (dropMidBody) {
+        response.writeHead(200, { 'content-type': 'application/octet-stream' });
+        response.write(binaryBuffer.slice(0, 4));
+        setTimeout(() => {
+          if (response.socket) response.socket.destroy();
+        }, 20);
+        return;
       }
       response.writeHead(200, { 'content-type': 'application/octet-stream' });
       response.end(binaryBuffer);
@@ -216,6 +233,24 @@ test('download fails cleanly when the download times out', async () => {
     });
     assert.notStrictEqual(result.status, 0, 'must exit non-zero');
     assert.match(result.stderr, /timed out/);
+    const binDir = path.join(__dirname, '..', 'bin');
+    assert.ok(!fs.existsSync(binDir), 'no partial binary left behind');
+  } finally {
+    await server.close();
+  }
+});
+
+test('download fails cleanly when the connection drops mid-body', async () => {
+  const binaryBuffer = Buffer.from('#!/bin/sh\necho fake-binary\n');
+  const checksumLine = `${sha256hex(binaryBuffer)}  matrix-workspace-tui-${getPlatform().name}`;
+  const server = await startServer({ binaryBuffer, checksumLine, dropMidBody: true });
+  try {
+    const result = await runDownload({
+      MATRIX_WORKSPACE_TUI_DOWNLOAD_BASE_URL: server.baseUrl,
+      MATRIX_WORKSPACE_TUI_VERSION: '0.1.0',
+    });
+    assert.notStrictEqual(result.status, 0, 'must exit non-zero');
+    assert.ok(result.stderr.length > 0, 'must print an error');
     const binDir = path.join(__dirname, '..', 'bin');
     assert.ok(!fs.existsSync(binDir), 'no partial binary left behind');
   } finally {

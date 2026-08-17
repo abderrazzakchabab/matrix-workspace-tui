@@ -151,6 +151,7 @@ function fetchBinary(url, destination) {
           reject(new Error(`Download failed: ${statusCode} for ${currentUrl}`));
           return;
         }
+        response.on('error', reject);
         const file = fs.createWriteStream(destination);
         response.pipe(file);
         file.on('finish', () => file.close(() => resolve()));
