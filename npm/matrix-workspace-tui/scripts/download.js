@@ -90,28 +90,82 @@ function sha256File(filePath) {
   });
 }
 
+// Node's core http client does not follow redirects, and GitHub release
+// downloads always answer 302 to the objects.githubusercontent.com CDN, so a
+// package that never followed them could not download its binary at all.
+// Follow the redirect status codes below, bounded to MAX_REDIRECTS hops.
+const REDIRECT_STATUS_CODES = new Set([301, 302, 303, 307, 308]);
+const MAX_REDIRECTS = 5;
+
 function fetchBinary(url, destination) {
   return new Promise((resolve, reject) => {
-    const client = url.startsWith('https:') ? require('node:https') : require('node:http');
-    const agent = resolveProxyFor(url);
-    const options = agent ? { agent } : undefined;
-    const request = client.get(url, options, (response) => {
-      if (response.statusCode !== 200) {
-        response.resume();
-        reject(new Error(`Download failed: ${response.statusCode} for ${url}`));
+    const attempt = (currentUrl, redirectsLeft) => {
+      // Only http(s) targets are supported; a redirect Location with any
+      // other scheme would make client.get throw synchronously, crashing the
+      // child instead of the clean reject path main's catch relies on.
+      if (!currentUrl.startsWith('http:') && !currentUrl.startsWith('https:')) {
+        reject(new Error(`Download failed: unsupported URL scheme for ${currentUrl}`));
         return;
       }
-      const file = fs.createWriteStream(destination);
-      response.pipe(file);
-      file.on('finish', () => file.close(() => resolve()));
-      file.on('error', reject);
-    });
-    // Never hang forever (e.g. the release does not exist yet): destroy the
-    // request on inactivity so the error path rejects cleanly.
-    request.setTimeout(TIMEOUT_MS, () => {
-      request.destroy(new Error(`Download timed out after ${TIMEOUT_MS}ms: ${url}`));
-    });
-    request.on('error', reject);
+      // Re-decide the proxy on every hop: the CDN the redirect lands on may
+      // differ from github.com, so NO_PROXY must be evaluated per host.
+      const client = currentUrl.startsWith('https:')
+        ? require('node:https')
+        : require('node:http');
+      const agent = resolveProxyFor(currentUrl);
+      const options = agent ? { agent } : undefined;
+      const request = client.get(currentUrl, options, (response) => {
+        const statusCode = response.statusCode;
+        if (REDIRECT_STATUS_CODES.has(statusCode)) {
+          // A connection dropped while the redirect body is drained makes
+          // IncomingMessage emit 'error'; with no listener that throws (an
+          // uncaught exception crashing the child) instead of the clean
+          // reject path that main's catch relies on.
+          response.on('error', reject);
+          response.resume();
+          const location = response.headers.location;
+          if (!location) {
+            reject(new Error(`Download failed: ${statusCode} for ${currentUrl}`));
+            return;
+          }
+          if (redirectsLeft <= 0) {
+            reject(new Error(`Download failed: too many redirects (max ${MAX_REDIRECTS}) for ${url}`));
+            return;
+          }
+          let nextUrl;
+          try {
+            // Resolve the Location header against the current URL (RFC 7231
+            // 7.1.2): GitHub sends an absolute CDN URL, but relative and
+            // scheme-relative locations must resolve correctly too.
+            nextUrl = new URL(location, currentUrl).toString();
+          } catch (error) {
+            reject(new Error(`Download failed: invalid redirect Location "${location}" from ${currentUrl}`));
+            return;
+          }
+          attempt(nextUrl, redirectsLeft - 1);
+          return;
+        }
+        if (statusCode !== 200) {
+          response.on('error', reject);
+          response.resume();
+          reject(new Error(`Download failed: ${statusCode} for ${currentUrl}`));
+          return;
+        }
+        response.on('error', reject);
+        const file = fs.createWriteStream(destination);
+        response.pipe(file);
+        file.on('finish', () => file.close(() => resolve()));
+        file.on('error', reject);
+      });
+      // Never hang forever (e.g. the release does not exist yet): destroy the
+      // request on inactivity so the error path rejects cleanly. Applied on
+      // every hop, so a stalled redirect target times out like any other.
+      request.setTimeout(TIMEOUT_MS, () => {
+        request.destroy(new Error(`Download timed out after ${TIMEOUT_MS}ms: ${currentUrl}`));
+      });
+      request.on('error', reject);
+    };
+    attempt(url, MAX_REDIRECTS);
   });
 }
 

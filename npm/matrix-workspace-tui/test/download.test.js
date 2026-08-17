@@ -16,24 +16,55 @@ function sha256hex(buffer) {
 
 /**
  * Static server serving /<binaryName> and /<binaryName>.sha256.
+ * With redirect=true, those paths answer 302 to /real/<...> where the content
+ * actually lives, mirroring GitHub's release-download 302 to the CDN.
  * With neverRespond, the binary request is accepted but never answered, to
  * exercise the download client's timeout path.
+ * With dropMidBody, the binary response starts writing then the connection is
+ * destroyed mid-body, to exercise the client's dropped-stream error path.
  */
-function startServer({ binaryBuffer, checksumLine, neverRespond = false }) {
+function startServer({
+  binaryBuffer,
+  checksumLine,
+  neverRespond = false,
+  redirect = false,
+  redirectLocation = null,
+  dropMidBody = false,
+}) {
   const { binaryName } = getPlatform();
-  const hits = { binary: 0, checksum: 0 };
+  const hits = { binary: 0, checksum: 0, redirect: 0 };
   const sockets = new Set();
   const server = http.createServer((request, response) => {
-    if (request.url === `/${binaryName}`) {
+    const redirectedTo =
+      redirect && request.url === `/${binaryName}`
+        ? `/real/${binaryName}`
+        : redirect && request.url === `/${binaryName}.sha256`
+          ? `/real/${binaryName}.sha256`
+          : null;
+    if (redirectedTo) {
+      hits.redirect += 1;
+      response.writeHead(302, { location: redirectLocation || redirectedTo });
+      response.end();
+      return;
+    }
+    if (request.url === `/${binaryName}` || request.url === `/real/${binaryName}`) {
       hits.binary += 1;
       if (neverRespond) {
         return; // hold the connection open, never answer
+      }
+      if (dropMidBody) {
+        response.writeHead(200, { 'content-type': 'application/octet-stream' });
+        response.write(binaryBuffer.slice(0, 4));
+        setTimeout(() => {
+          if (response.socket) response.socket.destroy();
+        }, 20);
+        return;
       }
       response.writeHead(200, { 'content-type': 'application/octet-stream' });
       response.end(binaryBuffer);
       return;
     }
-    if (request.url === `/${binaryName}.sha256`) {
+    if (request.url === `/${binaryName}.sha256` || request.url === `/real/${binaryName}.sha256`) {
       hits.checksum += 1;
       response.writeHead(200, { 'content-type': 'text/plain' });
       response.end(checksumLine);
@@ -117,6 +148,56 @@ test('download installs the binary and verifies the sha256 checksum', async () =
   }
 });
 
+test('download follows a 302 redirect to the real asset path', async () => {
+  const binaryBuffer = Buffer.from('#!/bin/sh\necho fake-binary\n');
+  const checksumLine = `${sha256hex(binaryBuffer)}  matrix-workspace-tui-${getPlatform().name}`;
+  const server = await startServer({ binaryBuffer, checksumLine, redirect: true });
+  try {
+    const result = await runDownload({
+      MATRIX_WORKSPACE_TUI_DOWNLOAD_BASE_URL: server.baseUrl,
+      MATRIX_WORKSPACE_TUI_VERSION: '0.1.0',
+    });
+    assert.strictEqual(result.status, 0, result.stderr);
+    const installed = path.join(__dirname, '..', 'bin', getPlatform().binaryName);
+    assert.ok(fs.existsSync(installed), 'binary installed');
+    assert.deepStrictEqual(fs.readFileSync(installed), binaryBuffer);
+    assert.strictEqual(
+      server.hits.redirect,
+      2,
+      'binary and checksum downloads must both have been redirected'
+    );
+    assert.strictEqual(server.hits.binary, 1);
+    assert.strictEqual(server.hits.checksum, 1);
+    fs.rmSync(path.join(__dirname, '..', 'bin'), { recursive: true, force: true });
+  } finally {
+    await server.close();
+  }
+});
+
+test('download fails cleanly on a redirect to a non-http(s) scheme', async () => {
+  const binaryBuffer = Buffer.from('#!/bin/sh\necho fake-binary\n');
+  const checksumLine = `${sha256hex(binaryBuffer)}  matrix-workspace-tui-${getPlatform().name}`;
+  const server = await startServer({
+    binaryBuffer,
+    checksumLine,
+    redirect: true,
+    redirectLocation: 'data:text/plain,not-a-binary',
+  });
+  try {
+    const result = await runDownload({
+      MATRIX_WORKSPACE_TUI_DOWNLOAD_BASE_URL: server.baseUrl,
+      MATRIX_WORKSPACE_TUI_VERSION: '0.1.0',
+    });
+    assert.notStrictEqual(result.status, 0, 'must exit non-zero');
+    assert.match(result.stderr, /Download failed/);
+    assert.doesNotMatch(result.stderr, /ERR_INVALID_PROTOCOL/);
+    const binDir = path.join(__dirname, '..', 'bin');
+    assert.ok(!fs.existsSync(binDir), 'no partial binary left behind');
+  } finally {
+    await server.close();
+  }
+});
+
 test('download fails hard on checksum mismatch and leaves no binary', async () => {
   const binaryBuffer = Buffer.from('#!/bin/sh\necho fake-binary\n');
   const server = await startServer({
@@ -152,6 +233,24 @@ test('download fails cleanly when the download times out', async () => {
     });
     assert.notStrictEqual(result.status, 0, 'must exit non-zero');
     assert.match(result.stderr, /timed out/);
+    const binDir = path.join(__dirname, '..', 'bin');
+    assert.ok(!fs.existsSync(binDir), 'no partial binary left behind');
+  } finally {
+    await server.close();
+  }
+});
+
+test('download fails cleanly when the connection drops mid-body', async () => {
+  const binaryBuffer = Buffer.from('#!/bin/sh\necho fake-binary\n');
+  const checksumLine = `${sha256hex(binaryBuffer)}  matrix-workspace-tui-${getPlatform().name}`;
+  const server = await startServer({ binaryBuffer, checksumLine, dropMidBody: true });
+  try {
+    const result = await runDownload({
+      MATRIX_WORKSPACE_TUI_DOWNLOAD_BASE_URL: server.baseUrl,
+      MATRIX_WORKSPACE_TUI_VERSION: '0.1.0',
+    });
+    assert.notStrictEqual(result.status, 0, 'must exit non-zero');
+    assert.ok(result.stderr.length > 0, 'must print an error');
     const binDir = path.join(__dirname, '..', 'bin');
     assert.ok(!fs.existsSync(binDir), 'no partial binary left behind');
   } finally {
