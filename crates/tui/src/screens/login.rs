@@ -10,7 +10,7 @@ use state::screens::LoginState;
 pub fn handle_login_key(state: &mut LoginState, key: KeyEvent) -> Command {
     match key.code {
         KeyCode::Char('q') => Command::Quit,
-        KeyCode::Char('\t') => {
+        KeyCode::Char('\t') | KeyCode::Tab => {
             state.toggle_focus();
             Command::None
         }
@@ -137,6 +137,25 @@ mod tests {
             Command::None
         );
         assert_eq!(state.access_token, "");
+    }
+
+    #[test]
+    fn real_tab_key_moves_to_access_token_field() {
+        // A real terminal delivers KeyCode::Tab (crossterm >= 0.27 maps the
+        // \t byte to KeyCode::Tab, never Char('\t')), so focus must move on
+        // the real key code, not only on the synthesized one.
+        let mut state = LoginState::default();
+        assert_eq!(state.focus, LoginField::HomeserverUrl);
+        assert_eq!(
+            handle_login_key(&mut state, key(KeyCode::Tab)),
+            Command::None
+        );
+        assert_eq!(state.focus, LoginField::AccessToken);
+        assert_eq!(
+            handle_login_key(&mut state, key(KeyCode::Tab)),
+            Command::None
+        );
+        assert_eq!(state.focus, LoginField::HomeserverUrl);
     }
 
     #[test]
