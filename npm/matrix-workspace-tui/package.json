@@ -1,0 +1,23 @@
+{
+  "name": "matrix-workspace-tui",
+  "version": "0.1.0",
+  "description": "Desktop TUI client for the Matrix Agent Workspace control plane",
+  "license": "MIT",
+  "bin": {
+    "matrix-workspace-tui": "index.js"
+  },
+  "files": [
+    "index.js",
+    "scripts/"
+  ],
+  "scripts": {
+    "postinstall": "node scripts/download.js",
+    "test": "node --test test/"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
