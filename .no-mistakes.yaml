@@ -1,5 +1,4 @@
-# This repository intentionally has no CI yet: the implementation plan adds
-# .github/workflows (ci.yml, release.yml) in a later group. Declared so the
-# no-mistakes gate treats a zero-check PR head as all-checks-passed instead of
-# waiting forever for checks that do not exist. Remove this once CI is live.
-no_ci: true
+# CI is live: .github/workflows/ci.yml (test + build on four platforms, runs on
+# PRs and pushes to main) and release.yml (tag-triggered). The no_ci declaration
+# that previously told the no-mistakes gate to treat a zero-check PR head as
+# all-checks-passed is removed: real checks now register on PRs.
