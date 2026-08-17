@@ -16,15 +16,29 @@ function sha256hex(buffer) {
 
 /**
  * Static server serving /<binaryName> and /<binaryName>.sha256.
+ * With redirect=true, those paths answer 302 to /real/<...> where the content
+ * actually lives, mirroring GitHub's release-download 302 to the CDN.
  * With neverRespond, the binary request is accepted but never answered, to
  * exercise the download client's timeout path.
  */
-function startServer({ binaryBuffer, checksumLine, neverRespond = false }) {
+function startServer({ binaryBuffer, checksumLine, neverRespond = false, redirect = false }) {
   const { binaryName } = getPlatform();
-  const hits = { binary: 0, checksum: 0 };
+  const hits = { binary: 0, checksum: 0, redirect: 0 };
   const sockets = new Set();
   const server = http.createServer((request, response) => {
-    if (request.url === `/${binaryName}`) {
+    const redirectedTo =
+      redirect && request.url === `/${binaryName}`
+        ? `/real/${binaryName}`
+        : redirect && request.url === `/${binaryName}.sha256`
+          ? `/real/${binaryName}.sha256`
+          : null;
+    if (redirectedTo) {
+      hits.redirect += 1;
+      response.writeHead(302, { location: redirectedTo });
+      response.end();
+      return;
+    }
+    if (request.url === `/${binaryName}` || request.url === `/real/${binaryName}`) {
       hits.binary += 1;
       if (neverRespond) {
         return; // hold the connection open, never answer
@@ -33,7 +47,7 @@ function startServer({ binaryBuffer, checksumLine, neverRespond = false }) {
       response.end(binaryBuffer);
       return;
     }
-    if (request.url === `/${binaryName}.sha256`) {
+    if (request.url === `/${binaryName}.sha256` || request.url === `/real/${binaryName}.sha256`) {
       hits.checksum += 1;
       response.writeHead(200, { 'content-type': 'text/plain' });
       response.end(checksumLine);
@@ -109,6 +123,32 @@ test('download installs the binary and verifies the sha256 checksum', async () =
     assert.ok(fs.existsSync(installed), 'binary installed');
     assert.deepStrictEqual(fs.readFileSync(installed), binaryBuffer);
     assert.strictEqual(fs.statSync(installed).mode & 0o111, 0o111, 'binary is executable');
+    assert.strictEqual(server.hits.binary, 1);
+    assert.strictEqual(server.hits.checksum, 1);
+    fs.rmSync(path.join(__dirname, '..', 'bin'), { recursive: true, force: true });
+  } finally {
+    await server.close();
+  }
+});
+
+test('download follows a 302 redirect to the real asset path', async () => {
+  const binaryBuffer = Buffer.from('#!/bin/sh\necho fake-binary\n');
+  const checksumLine = `${sha256hex(binaryBuffer)}  matrix-workspace-tui-${getPlatform().name}`;
+  const server = await startServer({ binaryBuffer, checksumLine, redirect: true });
+  try {
+    const result = await runDownload({
+      MATRIX_WORKSPACE_TUI_DOWNLOAD_BASE_URL: server.baseUrl,
+      MATRIX_WORKSPACE_TUI_VERSION: '0.1.0',
+    });
+    assert.strictEqual(result.status, 0, result.stderr);
+    const installed = path.join(__dirname, '..', 'bin', getPlatform().binaryName);
+    assert.ok(fs.existsSync(installed), 'binary installed');
+    assert.deepStrictEqual(fs.readFileSync(installed), binaryBuffer);
+    assert.strictEqual(
+      server.hits.redirect,
+      2,
+      'binary and checksum downloads must both have been redirected'
+    );
     assert.strictEqual(server.hits.binary, 1);
     assert.strictEqual(server.hits.checksum, 1);
     fs.rmSync(path.join(__dirname, '..', 'bin'), { recursive: true, force: true });

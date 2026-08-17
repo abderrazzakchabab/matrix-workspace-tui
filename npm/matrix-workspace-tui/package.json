@@ -1,6 +1,6 @@
 {
   "name": "@abderrazzakchabab/matrix-workspace-tui",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Desktop TUI client for the Matrix Agent Workspace control plane",
   "license": "MIT",
   "bin": {
