@@ -34,7 +34,11 @@ jobs:
       - name: Package binary + checksum
         run: |
           cp target/${{ matrix.target }}/release/matrix-workspace-tui matrix-workspace-tui-${{ matrix.platform }}
-          sha256sum matrix-workspace-tui-${{ matrix.platform }} > matrix-workspace-tui-${{ matrix.platform }}.sha256
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum matrix-workspace-tui-${{ matrix.platform }} > matrix-workspace-tui-${{ matrix.platform }}.sha256
+          else
+            shasum -a 256 matrix-workspace-tui-${{ matrix.platform }} > matrix-workspace-tui-${{ matrix.platform }}.sha256
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: binary-${{ matrix.platform }}
@@ -43,6 +47,8 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - name: Download all binaries
