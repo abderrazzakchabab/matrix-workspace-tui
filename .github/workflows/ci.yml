@@ -47,4 +47,10 @@ jobs:
         run: cargo build --release --target ${{ matrix.target }}
       - name: npm launcher tests
         working-directory: npm/matrix-workspace-tui
-        run: npm test
+        run: |
+          # --ignore-scripts: postinstall downloads the platform binary from the
+          # matching GitHub release, which does not exist for the in-flight
+          # version until the release is published. The download path is covered
+          # by the integration tests in test/ instead.
+          npm ci --ignore-scripts
+          npm test

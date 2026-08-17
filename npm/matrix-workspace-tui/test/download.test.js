@@ -69,9 +69,22 @@ function startServer({ binaryBuffer, checksumLine, neverRespond = false }) {
 function runDownload(env) {
   const script = path.join(__dirname, '..', 'scripts', 'download.js');
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [script], {
-      env: { ...process.env, ...env },
-    });
+    // Scrub proxy vars so ambient developer/CI proxies cannot route the
+    // 127.0.0.1 test server through a real proxy (these tests exercise the
+    // direct-connection path; proxy decision logic is tested separately in
+    // proxy.test.js).
+    const childEnv = { ...process.env, ...env };
+    for (const key of [
+      'HTTPS_PROXY',
+      'https_proxy',
+      'HTTP_PROXY',
+      'http_proxy',
+      'NO_PROXY',
+      'no_proxy',
+    ]) {
+      delete childEnv[key];
+    }
+    const child = spawn(process.execPath, [script], { env: childEnv });
     let stdout = '';
     let stderr = '';
     child.stdout.setEncoding('utf8');
