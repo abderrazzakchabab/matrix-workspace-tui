@@ -110,6 +110,11 @@ function fetchBinary(url, destination) {
       const request = client.get(currentUrl, options, (response) => {
         const statusCode = response.statusCode;
         if (REDIRECT_STATUS_CODES.has(statusCode)) {
+          // A connection dropped while the redirect body is drained makes
+          // IncomingMessage emit 'error'; with no listener that throws (an
+          // uncaught exception crashing the child) instead of the clean
+          // reject path that main's catch relies on.
+          response.on('error', reject);
           response.resume();
           const location = response.headers.location;
           if (!location) {
