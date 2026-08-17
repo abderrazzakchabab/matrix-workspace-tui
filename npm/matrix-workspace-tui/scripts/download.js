@@ -100,6 +100,13 @@ const MAX_REDIRECTS = 5;
 function fetchBinary(url, destination) {
   return new Promise((resolve, reject) => {
     const attempt = (currentUrl, redirectsLeft) => {
+      // Only http(s) targets are supported; a redirect Location with any
+      // other scheme would make client.get throw synchronously, crashing the
+      // child instead of the clean reject path main's catch relies on.
+      if (!currentUrl.startsWith('http:') && !currentUrl.startsWith('https:')) {
+        reject(new Error(`Download failed: unsupported URL scheme for ${currentUrl}`));
+        return;
+      }
       // Re-decide the proxy on every hop: the CDN the redirect lands on may
       // differ from github.com, so NO_PROXY must be evaluated per host.
       const client = currentUrl.startsWith('https:')
@@ -139,6 +146,7 @@ function fetchBinary(url, destination) {
           return;
         }
         if (statusCode !== 200) {
+          response.on('error', reject);
           response.resume();
           reject(new Error(`Download failed: ${statusCode} for ${currentUrl}`));
           return;

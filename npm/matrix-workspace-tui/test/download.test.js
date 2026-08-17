@@ -21,7 +21,7 @@ function sha256hex(buffer) {
  * With neverRespond, the binary request is accepted but never answered, to
  * exercise the download client's timeout path.
  */
-function startServer({ binaryBuffer, checksumLine, neverRespond = false, redirect = false }) {
+function startServer({ binaryBuffer, checksumLine, neverRespond = false, redirect = false, redirectLocation = null }) {
   const { binaryName } = getPlatform();
   const hits = { binary: 0, checksum: 0, redirect: 0 };
   const sockets = new Set();
@@ -34,7 +34,7 @@ function startServer({ binaryBuffer, checksumLine, neverRespond = false, redirec
           : null;
     if (redirectedTo) {
       hits.redirect += 1;
-      response.writeHead(302, { location: redirectedTo });
+      response.writeHead(302, { location: redirectLocation || redirectedTo });
       response.end();
       return;
     }
@@ -152,6 +152,30 @@ test('download follows a 302 redirect to the real asset path', async () => {
     assert.strictEqual(server.hits.binary, 1);
     assert.strictEqual(server.hits.checksum, 1);
     fs.rmSync(path.join(__dirname, '..', 'bin'), { recursive: true, force: true });
+  } finally {
+    await server.close();
+  }
+});
+
+test('download fails cleanly on a redirect to a non-http(s) scheme', async () => {
+  const binaryBuffer = Buffer.from('#!/bin/sh\necho fake-binary\n');
+  const checksumLine = `${sha256hex(binaryBuffer)}  matrix-workspace-tui-${getPlatform().name}`;
+  const server = await startServer({
+    binaryBuffer,
+    checksumLine,
+    redirect: true,
+    redirectLocation: 'data:text/plain,not-a-binary',
+  });
+  try {
+    const result = await runDownload({
+      MATRIX_WORKSPACE_TUI_DOWNLOAD_BASE_URL: server.baseUrl,
+      MATRIX_WORKSPACE_TUI_VERSION: '0.1.0',
+    });
+    assert.notStrictEqual(result.status, 0, 'must exit non-zero');
+    assert.match(result.stderr, /Download failed/);
+    assert.doesNotMatch(result.stderr, /ERR_INVALID_PROTOCOL/);
+    const binDir = path.join(__dirname, '..', 'bin');
+    assert.ok(!fs.existsSync(binDir), 'no partial binary left behind');
   } finally {
     await server.close();
   }
