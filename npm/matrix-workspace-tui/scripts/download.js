@@ -15,6 +15,67 @@ const BASE_URL =
 // Overridable so the timeout path is testable with a short value.
 const TIMEOUT_MS = Number(process.env.MATRIX_WORKSPACE_TUI_DOWNLOAD_TIMEOUT_MS) || 30_000;
 
+// ---------------------------------------------------------------------------
+// Proxy support
+//
+// Node's https.get/http.get do not honor the conventional HTTPS_PROXY /
+// HTTP_PROXY / NO_PROXY environment variables, so direct TLS to github.com
+// stalls on corporate networks whose firewall only allows proxied egress.
+// Route the request through https-proxy-agent / http-proxy-agent when a proxy
+// is configured and the target is not excluded via NO_PROXY. (Node 26's
+// --use-env-proxy flag is not a substitute: a published package cannot assume
+// it for its install-time postinstall.)
+// ---------------------------------------------------------------------------
+
+// Normalize one NO_PROXY entry into a comparable host, tolerating optional
+// ports and IPv6 brackets. Entry forms: "example.com", "example.com:8080",
+// ".example.com", "[::1]", "[::1]:8080", "*".
+function noProxyHost(entry) {
+  let host = entry.trim().toLowerCase();
+  if (host.startsWith('[')) {
+    const close = host.indexOf(']');
+    return close === -1 ? host : host.slice(1, close);
+  }
+  return host.split(':')[0];
+}
+
+// NO_PROXY semantics follow curl/npm: '*' bypasses everything; an entry
+// matches the exact host or any of its subdomains.
+function isNoProxyHost(hostname, noProxyList) {
+  const host = hostname.toLowerCase();
+  return noProxyList
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .some((entry) => {
+      if (entry === '*') return true;
+      const bare = noProxyHost(entry).replace(/^\./, '');
+      return host === bare || host.endsWith(`.${bare}`);
+    });
+}
+
+// Decide whether `url` should go through a proxy and, if so, build the agent.
+// Returns an http-proxy-agent/https-proxy-agent instance, or null for a direct
+// connection. Pure function of process.env — unit-testable without a live
+// proxy. HTTPS URLs prefer HTTPS_PROXY/https_proxy and fall back to
+// HTTP_PROXY/http_proxy (curl behavior); HTTP URLs use HTTP_PROXY/http_proxy.
+function resolveProxyFor(url) {
+  const env = process.env;
+  const isHttps = url.startsWith('https:');
+  const proxy =
+    (isHttps ? env.HTTPS_PROXY || env.https_proxy : '') ||
+    env.HTTP_PROXY ||
+    env.http_proxy;
+  if (!proxy) return null;
+  const noProxy = env.NO_PROXY || env.no_proxy;
+  if (noProxy && isNoProxyHost(new URL(url).hostname, noProxy)) return null;
+  // Lazy require: the agent packages are only needed when a proxy is actually
+  // configured, so the script stays runnable without dependencies otherwise.
+  const mod = require(isHttps ? 'https-proxy-agent' : 'http-proxy-agent');
+  const Agent = isHttps ? mod.HttpsProxyAgent || mod : mod.HttpProxyAgent || mod;
+  return new Agent(proxy);
+}
+
 const BIN_DIR = path.join(__dirname, '..', 'bin');
 const { name, binaryName } = getPlatform();
 const BINARY_PATH = path.join(BIN_DIR, binaryName);
@@ -32,7 +93,9 @@ function sha256File(filePath) {
 function fetchBinary(url, destination) {
   return new Promise((resolve, reject) => {
     const client = url.startsWith('https:') ? require('node:https') : require('node:http');
-    const request = client.get(url, (response) => {
+    const agent = resolveProxyFor(url);
+    const options = agent ? { agent } : undefined;
+    const request = client.get(url, options, (response) => {
       if (response.statusCode !== 200) {
         response.resume();
         reject(new Error(`Download failed: ${response.statusCode} for ${url}`));
@@ -87,4 +150,8 @@ async function main() {
   }
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = { isNoProxyHost, resolveProxyFor };
