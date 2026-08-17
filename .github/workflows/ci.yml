@@ -1,0 +1,50 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            platform: linux-x64
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            platform: linux-arm64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            platform: darwin-x64
+          - os: macos-14
+            target: aarch64-apple-darwin
+            platform: darwin-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (pinned by rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      # dtolnay/rust-toolchain installs the stable channel with the target, but
+      # rust-toolchain.toml overrides the active toolchain (1.85.0) for cargo in
+      # this repo, and that toolchain never receives the cross target's std.
+      # Re-add the target under the pinned toolchain (idempotent). Without this,
+      # cross-compiles (x86_64-apple-darwin on the arm64 macos-latest runner)
+      # fail with E0463: can't find crate for `core`.
+      - name: Install target into pinned toolchain
+        run: rustup target add ${{ matrix.target }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Rust tests
+        run: cargo test --workspace
+      - name: Release build
+        run: cargo build --release --target ${{ matrix.target }}
+      - name: npm launcher tests
+        working-directory: npm/matrix-workspace-tui
+        run: npm test

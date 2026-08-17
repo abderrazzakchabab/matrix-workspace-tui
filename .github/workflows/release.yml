@@ -1,0 +1,85 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            platform: linux-x64
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            platform: linux-arm64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            platform: darwin-x64
+          - os: macos-14
+            target: aarch64-apple-darwin
+            platform: darwin-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (pinned by rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      # dtolnay/rust-toolchain installs the stable channel with the target, but
+      # rust-toolchain.toml overrides the active toolchain (1.85.0) for cargo in
+      # this repo, and that toolchain never receives the cross target's std.
+      # Re-add the target under the pinned toolchain (idempotent). Without this,
+      # cross-compiles (x86_64-apple-darwin on the arm64 macos-latest runner)
+      # fail with E0463: can't find crate for `core`.
+      - name: Install target into pinned toolchain
+        run: rustup target add ${{ matrix.target }}
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }}
+      - name: Package binary + checksum
+        run: |
+          cp target/${{ matrix.target }}/release/matrix-workspace-tui matrix-workspace-tui-${{ matrix.platform }}
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum matrix-workspace-tui-${{ matrix.platform }} > matrix-workspace-tui-${{ matrix.platform }}.sha256
+          else
+            shasum -a 256 matrix-workspace-tui-${{ matrix.platform }} > matrix-workspace-tui-${{ matrix.platform }}.sha256
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.platform }}
+          path: matrix-workspace-tui-${{ matrix.platform }}*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download all binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Attach binaries to the GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*/*
+          generate_release_notes: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: 'https://registry.npmjs.org'
+      - name: Publish npm package
+        working-directory: npm/matrix-workspace-tui
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+# NPM_TOKEN must be configured in the repository settings (Settings → Secrets and
+# variables → Actions) with an npm access token that has publish rights to the
+# matrix-workspace-tui package scope. The package.json version must match the
+# release tag (e.g. tag v0.1.0 ↔ "version": "0.1.0") because postinstall downloads
+# .../releases/download/v<version>/... at install time. The publish step only runs
+# on v* tags, so ci.yml (PRs/push) never depends on this secret.
