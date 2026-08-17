@@ -9,7 +9,9 @@ use state::screens::LoginState;
 
 pub fn handle_login_key(state: &mut LoginState, key: KeyEvent) -> Command {
     match key.code {
-        KeyCode::Char('q') => Command::Quit,
+        KeyCode::Char('q') if state.homeserver_url.is_empty() && state.access_token.is_empty() => {
+            Command::Quit
+        }
         KeyCode::Char('\t') | KeyCode::Tab => {
             state.toggle_focus();
             Command::None
@@ -177,6 +179,49 @@ mod tests {
     #[test]
     fn q_quits() {
         let mut state = LoginState::default();
+        assert_eq!(
+            handle_login_key(&mut state, key(KeyCode::Char('q'))),
+            Command::Quit
+        );
+    }
+
+    #[test]
+    fn q_quits_only_when_both_fields_empty() {
+        // Captain-decision keyboard model extended to Login: 'q' quits only
+        // while the form is empty; once either field has content, keystrokes
+        // go to the focused field (URLs and Matrix tokens commonly contain
+        // 'q', so typing it must not kill the app mid-entry).
+        let mut state = LoginState::default();
+        assert_eq!(
+            handle_login_key(&mut state, key(KeyCode::Char('q'))),
+            Command::Quit
+        );
+
+        // A URL containing 'q' types into the focused field, not Quit.
+        assert_eq!(
+            handle_login_key(&mut state, key(KeyCode::Char('h'))),
+            Command::None
+        );
+        assert_eq!(
+            handle_login_key(&mut state, key(KeyCode::Char('q'))),
+            Command::None
+        );
+        assert_eq!(state.homeserver_url, "hq");
+
+        // Same in the token field: 'q' inserts, never quits.
+        assert_eq!(
+            handle_login_key(&mut state, key(KeyCode::Tab)),
+            Command::None
+        );
+        assert_eq!(
+            handle_login_key(&mut state, key(KeyCode::Char('q'))),
+            Command::None
+        );
+        assert_eq!(state.access_token, "q");
+
+        // Clearing both fields restores quit-on-q.
+        state.set_homeserver_url(String::new());
+        state.set_access_token(String::new());
         assert_eq!(
             handle_login_key(&mut state, key(KeyCode::Char('q'))),
             Command::Quit
