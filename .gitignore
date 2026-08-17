@@ -5,6 +5,7 @@ target/
 # Node / npm launcher package
 node_modules/
 npm/matrix-workspace-tui/*.tgz
+npm/matrix-workspace-tui/bin/
 
 # OS
 .DS_Store

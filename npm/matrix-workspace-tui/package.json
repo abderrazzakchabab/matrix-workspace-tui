@@ -12,7 +12,7 @@
   ],
   "scripts": {
     "postinstall": "node scripts/download.js",
-    "test": "node --test test/"
+    "test": "node --test"
   },
   "engines": {
     "node": ">=18"
