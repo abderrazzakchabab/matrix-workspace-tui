@@ -272,7 +272,9 @@ pub fn render_github_workspace(state: &GitHubWorkspaceState, frame: &mut Frame, 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use api_client::{GithubRepositorySummary, GithubWriteGrantResult, GithubWriteScope, GrantStatus};
+    use api_client::{
+        GithubRepositorySummary, GithubWriteGrantResult, GithubWriteScope, GrantStatus,
+    };
     use crossterm::event::KeyModifiers;
 
     fn key(code: KeyCode) -> KeyEvent {

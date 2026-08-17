@@ -31,7 +31,7 @@ pub fn handle_rooms_key(state: &mut RoomsState, key: KeyEvent) -> Command {
     }
 }
 
-pub fn handle_room_binding_key(state: &mut RoomBindingState, key: KeyEvent) -> Command {
+pub fn handle_room_binding_key(_state: &mut RoomBindingState, key: KeyEvent) -> Command {
     match key.code {
         KeyCode::Char('q') | KeyCode::Esc => Command::Back,
         KeyCode::Char('y') | KeyCode::Enter => Command::BindRoom,

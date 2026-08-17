@@ -7,7 +7,7 @@ use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
 use ratatui::Frame;
 use state::screens::RunState;
 
-pub fn handle_run_key(state: &mut RunState, key: KeyEvent) -> Command {
+pub fn handle_run_key(_state: &mut RunState, key: KeyEvent) -> Command {
     match key.code {
         KeyCode::Char('q') => Command::Back,
         KeyCode::Char('c') => Command::CancelRun,
